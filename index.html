@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Echo Runner MVP</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui">
+            <div>Echo: <span id="echoStatus">Ready</span></div>
+            <div>アイテム: <span id="itemCount">0/0</span></div>
+            <div>時間: <span id="timer">0:00</span></div>
+            <div id="goalMessage" style="display: none; color: #0f0; margin-top: 10px;">ゴールが出現しました！</div>
+        </div>
+        <div class="echo-cooldown">
+            <div class="echo-cooldown-fill" id="echoCooldownBar"></div>
+        </div>
+        <div id="controls">
+            クリック/タップ: Echo発射 | 矢印キー/WASD: 移動
+        </div>
+        <div id="mobileControls">
+            <div id="joystick">
+                <div id="joystickKnob"></div>
+            </div>
+        </div>
+        <div id="echoButton">ECHO</div>
+        <div id="startScreen">
+            <h1>Echo Runner</h1>
+            <p>完全な暗闇の中、音だけを頼りに進む探索ゲーム</p>
+            <p>Echoを発射して周囲を探索し、隠された<span style="color: #ff0;">5つのアイテム</span>を見つけ出して<span
+                    style="color: #0f0;">ゴール</span>を目指そう！</p>
+            <p style="font-size: 14px; opacity: 0.8;">PC: 矢印キー/WASDで移動 | モバイル: ジョイスティックで移動</p>
+            <p style="font-size: 14px; opacity: 0.6;">🔊 アイテムは高い音、ゴールは低い音で反響します</p>
+            <p style="font-size: 12px; opacity: 0.5; margin-top: 15px;">💡 毎回異なるマップが生成されます！</p>
+            <button id="startButton">Start Game</button>
+        </div>
+        <div id="clearScreen">
+            <h2>CLEAR!</h2>
+            <div class="stats">クリアタイム: <span id="clearTime">0:00</span></div>
+            <div class="stats">Echo使用回数: <span id="clearEchoCount">0</span></div>
+            <div class="score">スコア: <span id="clearScore">0</span></div>
+            <p style="font-size: 14px; opacity: 0.7; margin-top: 10px;">基本スコア1000点 - 時間ペナルティ - Echoペナルティ</p>
+            <p style="font-size: 12px; opacity: 0.5;">次回は違うマップが生成されます！</p>
+            <button id="retryButton">もう一度プレイ</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,340 @@
+body {
+    margin: 0;
+    padding: 0;
+    background: radial-gradient(circle at center, #001122 0%, #000 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: 'Arial', sans-serif;
+    overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    animation: subtleGlow 4s ease-in-out infinite alternate;
+}
+
+@keyframes subtleGlow {
+    0% { background: radial-gradient(circle at center, #001122 0%, #000 100%); }
+    100% { background: radial-gradient(circle at center, #001833 0%, #000 100%); }
+}
+
+#gameContainer {
+    position: relative;
+    width: 800px;
+    height: 600px;
+    max-width: 100vw;
+    max-height: 100vh;
+}
+
+canvas {
+    background: radial-gradient(circle at center, #000511 0%, #000 100%);
+    display: block;
+    cursor: crosshair;
+    border: 2px solid #001122;
+    border-radius: 4px;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
+    transition: box-shadow 0.3s ease;
+}
+
+canvas:hover {
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.2);
+}
+
+#ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: #fff;
+    font-size: 14px;
+    pointer-events: none;
+    background: rgba(0, 20, 40, 0.8);
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+    font-family: 'Courier New', monospace;
+}
+
+#ui div {
+    margin: 4px 0;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
+}
+
+#controls {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    color: #666;
+    font-size: 12px;
+    pointer-events: none;
+}
+
+#startScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 20, 40, 0.9) 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    touch-action: manipulation;
+    z-index: 10;
+    backdrop-filter: blur(10px);
+}
+
+#startScreen h1 {
+    font-size: 48px;
+    margin-bottom: 20px;
+    text-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+    animation: titleGlow 2s ease-in-out infinite alternate;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+
+@keyframes titleGlow {
+    0% { text-shadow: 0 0 30px rgba(0, 255, 255, 0.8); }
+    100% { text-shadow: 0 0 40px rgba(0, 255, 255, 1), 0 0 60px rgba(0, 255, 255, 0.5); }
+}
+
+#startScreen p {
+    font-size: 18px;
+    margin: 10px 0;
+    text-align: center;
+    max-width: 600px;
+    padding: 0 20px;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+}
+
+#startButton {
+    margin-top: 30px;
+    padding: 18px 50px;
+    font-size: 20px;
+    background: linear-gradient(135deg, #001122 0%, #003366 100%);
+    color: #fff;
+    border: 2px solid #00ffff;
+    cursor: pointer;
+    transition: all 0.3s;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    border-radius: 8px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    box-shadow: 0 4px 15px rgba(0, 255, 255, 0.2);
+}
+
+#startButton:hover,
+#startButton:active {
+    background: linear-gradient(135deg, #003366 0%, #0066aa 100%);
+    box-shadow: 0 6px 25px rgba(0, 255, 255, 0.4);
+    transform: translateY(-2px);
+}
+
+.echo-cooldown {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 240px;
+    height: 16px;
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid rgba(0, 255, 255, 0.4);
+    border-radius: 10px;
+    overflow: hidden;
+    pointer-events: none;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+}
+
+.echo-cooldown-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00ffff, #0080ff, #0040ff);
+    width: 100%;
+    transition: width 0.1s linear;
+    box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+    animation: energyPulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes energyPulse {
+    0% { opacity: 0.8; }
+    100% { opacity: 1; }
+}
+
+/* モバイルコントロール */
+#mobileControls {
+    position: absolute;
+    bottom: 80px;
+    left: 20px;
+    display: none;
+    touch-action: none;
+    z-index: 5;
+}
+
+#joystick {
+    width: 120px;
+    height: 120px;
+    background: rgba(0, 20, 40, 0.8);
+    border: 3px solid rgba(0, 255, 255, 0.5);
+    border-radius: 50%;
+    position: relative;
+    touch-action: none;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+    backdrop-filter: blur(5px);
+}
+
+#joystickKnob {
+    width: 40px;
+    height: 40px;
+    background: radial-gradient(circle, rgba(0, 255, 255, 0.8) 0%, rgba(0, 200, 255, 0.6) 100%);
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: none;
+    pointer-events: none;
+    box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+}
+
+#echoButton {
+    position: absolute;
+    bottom: 80px;
+    right: 20px;
+    width: 80px;
+    height: 80px;
+    background: radial-gradient(circle, rgba(0, 200, 255, 0.3) 0%, rgba(0, 100, 200, 0.2) 100%);
+    border: 3px solid rgba(0, 200, 255, 0.8);
+    border-radius: 50%;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    color: #0ff;
+    font-size: 14px;
+    font-weight: bold;
+    touch-action: none;
+    z-index: 5;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 0 20px rgba(0, 200, 255, 0.4);
+    backdrop-filter: blur(5px);
+    text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+}
+
+#echoButton.cooldown {
+    opacity: 0.4;
+    border-color: rgba(100, 100, 100, 0.6);
+    box-shadow: 0 0 10px rgba(100, 100, 100, 0.2);
+}
+
+#clearScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 30, 60, 0.9) 100%);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    z-index: 20;
+    backdrop-filter: blur(10px);
+}
+
+#clearScreen h2 {
+    font-size: 48px;
+    margin-bottom: 30px;
+    color: #0ff;
+    text-shadow: 0 0 30px rgba(0, 255, 255, 1), 0 0 60px rgba(0, 255, 255, 0.5);
+    animation: clearGlow 1.5s ease-in-out infinite alternate;
+    font-weight: bold;
+    letter-spacing: 3px;
+}
+
+@keyframes clearGlow {
+    0% { text-shadow: 0 0 30px rgba(0, 255, 255, 1), 0 0 60px rgba(0, 255, 255, 0.5); }
+    100% { text-shadow: 0 0 40px rgba(0, 255, 255, 1), 0 0 80px rgba(0, 255, 255, 0.8); }
+}
+
+#clearScreen .stats {
+    font-size: 24px;
+    margin: 10px 0;
+}
+
+#clearScreen .score {
+    font-size: 32px;
+    margin: 20px 0;
+    color: #0f0;
+    text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+#retryButton {
+    margin-top: 30px;
+    padding: 15px 40px;
+    font-size: 20px;
+    background: #333;
+    color: #fff;
+    border: 2px solid #0ff;
+    cursor: pointer;
+    transition: all 0.3s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#retryButton:hover,
+#retryButton:active {
+    background: #555;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+}
+
+@media (max-width: 768px),
+(pointer: coarse),
+(hover: none) {
+
+    #mobileControls,
+    #echoButton {
+        display: flex;
+    }
+
+    #controls {
+        display: none;
+    }
+
+    #gameContainer {
+        width: 100vw;
+        height: 100vh;
+    }
+
+    #ui {
+        font-size: 12px;
+        top: 5px;
+        left: 5px;
+    }
+
+    #startScreen h1 {
+        font-size: 36px;
+    }
+
+    #startScreen p {
+        font-size: 16px;
+    }
+
+    #clearScreen h2 {
+        font-size: 36px;
+    }
+
+    #clearScreen .stats {
+        font-size: 20px;
+    }
+
+    #clearScreen .score {
+        font-size: 28px;
+    }
+}
