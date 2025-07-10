@@ -19,6 +19,7 @@ const game = {
     },
     echoes: [],
     echoParticles: [],
+    advancedParticles: [], // 高度なパーティクル
     walls: [],
     items: [],
     itemGlows: [], // アイテムの余韻効果
@@ -35,6 +36,19 @@ const game = {
     started: false,
     cleared: false,
     mobileControlsInitialized: false,
+    // 触覚フィードバック設定
+    haptics: {
+        enabled: true,
+        intensity: 1.0,
+        lastVibration: 0,
+        minInterval: 100 // 最小振動間隔（ms）
+    },
+    // トランジション効果
+    transitions: {
+        fadeAlpha: 1.0,
+        isTransitioning: false,
+        transitionType: 'none' // 'fadeIn', 'fadeOut', 'none'
+    },
     joystick: {
         active: false,
         startX: 0,
@@ -55,15 +69,477 @@ window.addEventListener('resize', resizeCanvas);
 // 音響システム
 let audioContext;
 let masterGain;
+
+// オーディオノードプール（パフォーマンス最適化）
+const audioNodePool = {
+    oscillators: [],
+    gainNodes: [],
+    filterNodes: [],
+    delayNodes: [],
+    maxPoolSize: 20,
+    
+    // オシレーターを取得
+    getOscillator() {
+        if (this.oscillators.length > 0) {
+            return this.oscillators.pop();
+        }
+        return audioContext ? audioContext.createOscillator() : null;
+    },
+    
+    // ゲインノードを取得
+    getGainNode() {
+        if (this.gainNodes.length > 0) {
+            const node = this.gainNodes.pop();
+            // リセット
+            node.gain.value = 1.0;
+            node.disconnect();
+            return node;
+        }
+        return audioContext ? audioContext.createGain() : null;
+    },
+    
+    // フィルターノードを取得
+    getFilterNode() {
+        if (this.filterNodes.length > 0) {
+            const node = this.filterNodes.pop();
+            // リセット
+            node.frequency.value = 1000;
+            node.Q.value = 1;
+            node.type = 'lowpass';
+            node.disconnect();
+            return node;
+        }
+        return audioContext ? audioContext.createBiquadFilter() : null;
+    },
+    
+    // ディレイノードを取得
+    getDelayNode() {
+        if (this.delayNodes.length > 0) {
+            const node = this.delayNodes.pop();
+            // リセット
+            node.delayTime.value = 0;
+            node.disconnect();
+            return node;
+        }
+        return audioContext ? audioContext.createDelay() : null;
+    },
+    
+    // ノードをプールに戻す
+    returnGainNode(node) {
+        if (this.gainNodes.length < this.maxPoolSize) {
+            node.disconnect();
+            this.gainNodes.push(node);
+        }
+    },
+    
+    returnFilterNode(node) {
+        if (this.filterNodes.length < this.maxPoolSize) {
+            node.disconnect();
+            this.filterNodes.push(node);
+        }
+    },
+    
+    returnDelayNode(node) {
+        if (this.delayNodes.length < this.maxPoolSize) {
+            node.disconnect();
+            this.delayNodes.push(node);
+        }
+    }
+};
+
+// パフォーマンス監視（強化版）
+const performanceMonitor = {
+    lastEchoTime: 0,
+    echoCount: 0,
+    maxEchoesPerSecond: 30, // 最大エコー数/秒を削減
+    currentlyPlaying: 0, // 現在再生中の音響数
+    maxConcurrentSounds: 8, // 最大同時再生数
+    lastCloseWallEcho: 0, // 近距離壁エコーの最終時刻
+    closeWallCooldown: 100, // 近距離壁エコーのクールダウン（ms）
+    
+    canCreateEcho() {
+        const now = Date.now();
+        if (now - this.lastEchoTime > 1000) {
+            this.echoCount = 0;
+            this.lastEchoTime = now;
+        }
+        
+        if (this.echoCount >= this.maxEchoesPerSecond) {
+            return false;
+        }
+        
+        if (this.currentlyPlaying >= this.maxConcurrentSounds) {
+            return false;
+        }
+        
+        this.echoCount++;
+        this.currentlyPlaying++;
+        return true;
+    },
+    
+    canCreateCloseWallEcho() {
+        const now = Date.now();
+        if (now - this.lastCloseWallEcho < this.closeWallCooldown) {
+            return false;
+        }
+        this.lastCloseWallEcho = now;
+        return true;
+    },
+    
+    soundFinished() {
+        this.currentlyPlaying = Math.max(0, this.currentlyPlaying - 1);
+    }
+};
+
+// マスターコンプレッサー（音割れ防止）
+let masterCompressor;
+
 try {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // コンプレッサーを作成（音割れを防ぐ）
+    masterCompressor = audioContext.createDynamicsCompressor();
+    masterCompressor.threshold.setValueAtTime(-24, audioContext.currentTime);
+    masterCompressor.knee.setValueAtTime(30, audioContext.currentTime);
+    masterCompressor.ratio.setValueAtTime(12, audioContext.currentTime);
+    masterCompressor.attack.setValueAtTime(0.003, audioContext.currentTime);
+    masterCompressor.release.setValueAtTime(0.25, audioContext.currentTime);
+    
     // マスターゲインノードを作成して音量を制御
     masterGain = audioContext.createGain();
-    masterGain.connect(audioContext.destination);
-    masterGain.gain.value = 0.3; // 全体音量を下げて音割れを防止
+    masterGain.gain.value = 0.25; // 全体音量をさらに下げる
+    
+    // 接続: masterGain → masterCompressor → destination
+    masterGain.connect(masterCompressor);
+    masterCompressor.connect(audioContext.destination);
 } catch (e) {
     console.error('Web Audio API is not supported in this browser');
 }
+
+// 触覚フィードバックシステム
+const hapticFeedback = {
+    // 振動パターンの定義
+    patterns: {
+        wallHit: [50], // 壁に当たった時
+        itemCollect: [30, 20, 30], // アイテム収集時
+        goalReach: [100, 50, 100, 50, 100], // ゴール到達時
+        echoFire: [20], // エコー発射時
+        echoHit: [15], // エコー反響時
+        subtle: [10] // 微妙な振動
+    },
+
+    // 振動を実行
+    vibrate(pattern, intensity = 1.0) {
+        if (!game.haptics.enabled || !navigator.vibrate) return;
+        
+        const now = Date.now();
+        if (now - game.haptics.lastVibration < game.haptics.minInterval) return;
+        
+        game.haptics.lastVibration = now;
+        
+        // 強度を適用
+        const adjustedPattern = Array.isArray(pattern) 
+            ? pattern.map(duration => Math.round(duration * intensity * game.haptics.intensity))
+            : [Math.round(pattern * intensity * game.haptics.intensity)];
+        
+        try {
+            navigator.vibrate(adjustedPattern);
+        } catch (e) {
+            console.warn('Vibration not supported:', e);
+        }
+    },
+
+    // 距離に基づく振動強度
+    distanceBasedVibration(distance, maxDistance = 200, basePattern = [30]) {
+        const intensity = Math.max(0.1, 1 - (distance / maxDistance));
+        this.vibrate(basePattern, intensity);
+    },
+
+    // 衝突の強さに基づく振動
+    collisionVibration(velocity) {
+        const intensity = Math.min(1.0, Math.abs(velocity) / 5);
+        this.vibrate(this.patterns.wallHit, intensity);
+    }
+};
+
+// 高度なパーティクルシステム
+class AdvancedParticle {
+    constructor(x, y, options = {}) {
+        this.x = x;
+        this.y = y;
+        this.vx = options.vx || 0;
+        this.vy = options.vy || 0;
+        this.ax = options.ax || 0;
+        this.ay = options.ay || 0;
+        this.radius = options.radius || 2;
+        this.life = options.life || 60;
+        this.maxLife = this.life;
+        this.color = options.color || { r: 0, g: 255, b: 255 };
+        this.alpha = options.alpha || 1.0;
+        this.decay = options.decay || 0.02;
+        this.type = options.type || 'default';
+        this.rotation = options.rotation || 0;
+        this.rotationSpeed = options.rotationSpeed || 0;
+        this.scale = options.scale || 1.0;
+        this.scaleSpeed = options.scaleSpeed || 0;
+        this.trail = options.trail || [];
+        this.maxTrailLength = options.maxTrailLength || 5;
+        this.gravity = options.gravity || 0;
+        this.bounce = options.bounce || 0;
+        this.glow = options.glow || false;
+        this.pulsate = options.pulsate || false;
+        this.pulsateSpeed = options.pulsateSpeed || 0.1;
+        this.pulsateAmount = options.pulsateAmount || 0.3;
+    }
+
+    update() {
+        // 軌跡の更新
+        if (this.trail.length > 0) {
+            this.trail.push({ x: this.x, y: this.y, alpha: this.alpha });
+            if (this.trail.length > this.maxTrailLength) {
+                this.trail.shift();
+            }
+        }
+
+        // 物理演算
+        this.vx += this.ax;
+        this.vy += this.ay + this.gravity;
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // 境界での反射
+        if (this.bounce > 0) {
+            if (this.x <= 0 || this.x >= canvas.width) {
+                this.vx *= -this.bounce;
+                this.x = Math.max(0, Math.min(canvas.width, this.x));
+            }
+            if (this.y <= 0 || this.y >= canvas.height) {
+                this.vy *= -this.bounce;
+                this.y = Math.max(0, Math.min(canvas.height, this.y));
+            }
+        }
+
+        // 回転と拡縮
+        this.rotation += this.rotationSpeed;
+        this.scale += this.scaleSpeed;
+
+        // パルス効果
+        if (this.pulsate) {
+            const pulseFactor = 1 + Math.sin(Date.now() * this.pulsateSpeed) * this.pulsateAmount;
+            this.radius = this.radius * pulseFactor;
+        }
+
+        // 生存時間とアルファの減衰
+        this.life--;
+        this.alpha -= this.decay;
+        
+        return this.life > 0 && this.alpha > 0;
+    }
+
+    draw(ctx) {
+        if (this.alpha <= 0) return;
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        ctx.scale(this.scale, this.scale);
+        ctx.globalAlpha = this.alpha;
+
+        // グロー効果
+        if (this.glow) {
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha})`;
+        }
+
+        // 軌跡の描画
+        if (this.trail.length > 1) {
+            ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha * 0.3})`;
+            ctx.lineWidth = this.radius * 0.5;
+            ctx.beginPath();
+            this.trail.forEach((point, index) => {
+                if (index === 0) {
+                    ctx.moveTo(point.x - this.x, point.y - this.y);
+                } else {
+                    ctx.lineTo(point.x - this.x, point.y - this.y);
+                }
+            });
+            ctx.stroke();
+        }
+
+        // パーティクル本体の描画
+        this.drawParticle(ctx);
+
+        ctx.restore();
+    }
+
+    drawParticle(ctx) {
+        switch (this.type) {
+            case 'spark':
+                this.drawSpark(ctx);
+                break;
+            case 'star':
+                this.drawStar(ctx);
+                break;
+            case 'ring':
+                this.drawRing(ctx);
+                break;
+            case 'diamond':
+                this.drawDiamond(ctx);
+                break;
+            default:
+                this.drawCircle(ctx);
+        }
+    }
+
+    drawCircle(ctx) {
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha})`;
+        ctx.fill();
+    }
+
+    drawSpark(ctx) {
+        ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-this.radius, 0);
+        ctx.lineTo(this.radius, 0);
+        ctx.moveTo(0, -this.radius);
+        ctx.lineTo(0, this.radius);
+        ctx.stroke();
+    }
+
+    drawStar(ctx) {
+        const spikes = 5;
+        const outerRadius = this.radius;
+        const innerRadius = outerRadius * 0.4;
+        
+        ctx.beginPath();
+        for (let i = 0; i < spikes * 2; i++) {
+            const angle = (i * Math.PI) / spikes;
+            const radius = i % 2 === 0 ? outerRadius : innerRadius;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha})`;
+        ctx.fill();
+    }
+
+    drawRing(ctx) {
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+    }
+
+    drawDiamond(ctx) {
+        ctx.beginPath();
+        ctx.moveTo(0, -this.radius);
+        ctx.lineTo(this.radius, 0);
+        ctx.lineTo(0, this.radius);
+        ctx.lineTo(-this.radius, 0);
+        ctx.closePath();
+        ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha})`;
+        ctx.fill();
+    }
+}
+
+// パーティクル生成ヘルパー（最適化版）
+const particleEffects = {
+    // 爆発効果（最適化）
+    explosion(x, y, color = { r: 255, g: 255, b: 0 }, intensity = 1.0) {
+        // パーティクル数を制限
+        const maxParticles = 10;
+        const particleCount = Math.min(maxParticles, Math.floor(8 * intensity));
+        
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (Math.PI * 2 * i) / particleCount;
+            const speed = 2 + Math.random() * 3 * intensity;
+            game.advancedParticles.push(new AdvancedParticle(x, y, {
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                radius: 2 + Math.random() * 2,
+                life: 25 + Math.random() * 20,
+                color: color,
+                decay: 0.04,
+                type: 'spark',
+                glow: true
+            }));
+        }
+    },
+
+    // 螺旋効果（最適化）
+    spiral(x, y, color = { r: 0, g: 255, b: 255 }, intensity = 1.0) {
+        // パーティクル数を大幅に削減
+        const maxParticles = 12;
+        const particleCount = Math.min(maxParticles, Math.floor(10 * intensity));
+        
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (Math.PI * 3 * i) / particleCount; // 螺旋の巻数を減らす
+            const radius = i * 1.5;
+            const px = x + Math.cos(angle) * radius;
+            const py = y + Math.sin(angle) * radius;
+            
+            game.advancedParticles.push(new AdvancedParticle(px, py, {
+                vx: Math.cos(angle + Math.PI / 2) * 0.8,
+                vy: Math.sin(angle + Math.PI / 2) * 0.8,
+                radius: 2,
+                life: 45,
+                color: color,
+                decay: 0.025,
+                type: 'ring',
+                rotationSpeed: 0.1,
+                glow: true
+            }));
+        }
+    },
+
+    // 流星効果
+    meteor(x, y, targetX, targetY, color = { r: 255, g: 200, b: 0 }) {
+        const dx = targetX - x;
+        const dy = targetY - y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const vx = (dx / distance) * 8;
+        const vy = (dy / distance) * 8;
+        
+        game.advancedParticles.push(new AdvancedParticle(x, y, {
+            vx: vx,
+            vy: vy,
+            radius: 4,
+            life: 80,
+            color: color,
+            decay: 0.015,
+            type: 'diamond',
+            trail: [],
+            maxTrailLength: 8,
+            glow: true,
+            pulsate: true,
+            pulsateSpeed: 0.2
+        }));
+    },
+
+    // 拡散波
+    shockwave(x, y, maxRadius = 100, color = { r: 0, g: 255, b: 255 }) {
+        for (let i = 0; i < 3; i++) {
+            setTimeout(() => {
+                game.advancedParticles.push(new AdvancedParticle(x, y, {
+                    radius: 5,
+                    life: 60,
+                    color: color,
+                    decay: 0.02,
+                    type: 'ring',
+                    scaleSpeed: maxRadius / 60,
+                    alpha: 0.8 - i * 0.2
+                }));
+            }, i * 100);
+        }
+    }
+};
 
 function playEchoSound(frequency = 800, duration = 0.1) {
     if (!audioContext) return;
@@ -562,6 +1038,15 @@ function fireEcho(x, y) {
     game.echoCount++; // エコー使用回数をカウント
     playEchoSound(1000, 0.05);
 
+    // 触覚フィードバック
+    hapticFeedback.vibrate(hapticFeedback.patterns.echoFire);
+
+    // 高度なパーティクル効果 - エコー発射時の拡散波
+    particleEffects.shockwave(x, y, 60, { r: 0, g: 200, b: 255 });
+
+    // エコー発射時の螺旋効果
+    particleEffects.spiral(x, y, { r: 100, g: 255, b: 255 }, 0.6);
+
     // 全方向にエコーを発射
     const echoCount = 36;
     for (let i = 0; i < echoCount; i++) {
@@ -584,42 +1069,93 @@ function createEchoParticle(x, y, collisionData) {
         Math.pow(game.player.x - x, 2) +
         Math.pow(game.player.y - y, 2)
     );
-    const volume = Math.max(0.1, 1 - distance / 500);
+
+    // 近距離壁の特別処理
+    const isCloseWall = collisionData.type === 'wall' && distance < 80;
+    
+    if (isCloseWall) {
+        // 近距離壁エコーの制限チェック
+        if (!performanceMonitor.canCreateCloseWallEcho()) {
+            return; // 近距離壁エコーのクールダウン中
+        }
+    } else {
+        // 通常のパフォーマンス制限チェック
+        if (!performanceMonitor.canCreateEcho()) {
+            return; // エコー数制限に達した場合はスキップ
+        }
+    }
+
+    // 距離ベースの音量計算（近距離では音量を大幅に削減）
+    let baseVolume;
+    if (distance < 50) {
+        baseVolume = 0.1; // 非常に近い場合は最小音量
+    } else if (distance < 150) {
+        baseVolume = 0.2 + (distance - 50) / 100 * 0.3; // 段階的に音量増加
+    } else {
+        baseVolume = Math.max(0.1, 1 - distance / 500); // 通常の計算
+    }
+
+    const volume = Math.min(0.5, baseVolume); // 最大音量を制限
+
+    // 距離が遠すぎる場合は音を再生しない
+    if (distance > 600 || volume < 0.08) {
+        performanceMonitor.soundFinished(); // カウンターを戻す
+        return;
+    }
 
     if (audioContext) {
         try {
-            const gainNode = audioContext.createGain();
-            
-            // Create multiple oscillators for richer echo sounds
-            const oscillator1 = audioContext.createOscillator();
-            const oscillator2 = audioContext.createOscillator();
-            const filterNode = audioContext.createBiquadFilter();
-            const delayNode = audioContext.createDelay();
-            const feedbackGain = audioContext.createGain();
+            // オーディオノードプールから取得
+            const gainNode = audioNodePool.getGainNode();
+            const oscillator1 = audioNodePool.getOscillator();
+            const oscillator2 = audioNodePool.getOscillator();
+            const filterNode = audioNodePool.getFilterNode();
+            const delayNode = audioNodePool.getDelayNode();
+            const feedbackGain = audioNodePool.getGainNode();
 
-            // Configure based on collision type
+            if (!gainNode || !oscillator1 || !oscillator2 || !filterNode || !delayNode || !feedbackGain) {
+                console.warn('Audio node pool exhausted');
+                return;
+            }
+
+            // Configure based on collision type and distance
             let frequency = 600;
             let filterFreq = 1000;
             let delayTime = 0.1;
+            let soundDuration = 0.3;
             
             if (collisionData.type === 'item') {
                 frequency = 1200 + Math.random() * 400; // アイテムは高い音でランダム性
                 filterFreq = 2000;
                 delayTime = 0.05;
+                soundDuration = 0.25;
                 oscillator1.type = 'triangle';
                 oscillator2.type = 'sine';
             } else if (collisionData.type === 'goal') {
                 frequency = 300 + Math.random() * 200; // ゴールは低い音でランダム性
                 filterFreq = 800;
                 delayTime = 0.15;
+                soundDuration = 0.35;
                 oscillator1.type = 'sawtooth';
                 oscillator2.type = 'triangle';
             } else {
-                frequency = 600 + (distance / 2) + Math.random() * 100;
-                filterFreq = 1000;
-                delayTime = 0.1;
-                oscillator1.type = 'sine';
-                oscillator2.type = 'square';
+                // 壁の音響設定（距離に基づく調整）
+                if (isCloseWall) {
+                    // 近距離壁: より短く、ソフトな音
+                    frequency = 500 + Math.random() * 200; // 周波数を下げる
+                    filterFreq = 800; // フィルターを強くかける
+                    delayTime = 0.05; // ディレイを短くする
+                    soundDuration = 0.15; // 音の長さを短くする
+                    oscillator1.type = 'sine';
+                    oscillator2.type = 'triangle'; // よりソフトな波形
+                } else {
+                    frequency = 600 + (distance / 3) + Math.random() * 50; // ランダム性を減らす
+                    filterFreq = 1000;
+                    delayTime = 0.1;
+                    soundDuration = 0.25;
+                    oscillator1.type = 'sine';
+                    oscillator2.type = 'square';
+                }
             }
 
             // Configure filter
@@ -631,38 +1167,173 @@ function createEchoParticle(x, y, collisionData) {
             delayNode.delayTime.value = delayTime;
             feedbackGain.gain.value = 0.2; // Reduced feedback to prevent distortion
 
-            // Connect nodes
+            // Connect nodes - マスターゲインを通すように修正
             oscillator1.connect(gainNode);
             oscillator2.connect(gainNode);
             gainNode.connect(filterNode);
             filterNode.connect(delayNode);
             delayNode.connect(feedbackGain);
             feedbackGain.connect(delayNode);
-            filterNode.connect(audioContext.destination);
-            delayNode.connect(audioContext.destination);
+            filterNode.connect(masterGain); // マスターゲインを通す
+            delayNode.connect(masterGain); // マスターゲインを通す
 
             // Configure oscillators
             oscillator1.frequency.value = frequency;
             oscillator2.frequency.value = frequency * 0.75;
 
-            // Dynamic envelope - reduced volume to prevent distortion
-            gainNode.gain.setValueAtTime(volume * 0.15, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            // Dynamic envelope - 距離と音量を考慮した調整
+            const startVolume = volume * (isCloseWall ? 0.05 : 0.1); // 近距離壁はさらに音量削減
+            const endVolume = 0.005;
+            
+            gainNode.gain.setValueAtTime(startVolume, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(endVolume, audioContext.currentTime + soundDuration);
 
-            // Frequency modulation for more interesting sound
-            oscillator1.frequency.exponentialRampToValueAtTime(frequency * 0.7, audioContext.currentTime + 0.3);
+            // Frequency modulation - 近距離では控えめに
+            const freqModAmount = isCloseWall ? 0.95 : 0.8;
+            oscillator1.frequency.exponentialRampToValueAtTime(frequency * freqModAmount, audioContext.currentTime + soundDuration);
 
             oscillator1.start(audioContext.currentTime);
             oscillator2.start(audioContext.currentTime);
-            oscillator1.stop(audioContext.currentTime + 0.3);
-            oscillator2.stop(audioContext.currentTime + 0.3);
+            oscillator1.stop(audioContext.currentTime + soundDuration);
+            oscillator2.stop(audioContext.currentTime + soundDuration);
+
+            // クリーンアップを遅延実行
+            setTimeout(() => {
+                try {
+                    // ノードをプールに返却
+                    audioNodePool.returnGainNode(gainNode);
+                    audioNodePool.returnFilterNode(filterNode);
+                    audioNodePool.returnDelayNode(delayNode);
+                    audioNodePool.returnGainNode(feedbackGain);
+                    // パフォーマンス監視を更新
+                    performanceMonitor.soundFinished();
+                } catch (cleanupError) {
+                    console.warn('Audio cleanup error:', cleanupError);
+                    performanceMonitor.soundFinished(); // エラーでもカウンターを戻す
+                }
+            }, Math.max(400, soundDuration * 1000 + 100)); // 音の長さに応じてクリーンアップ
+
         } catch (e) {
             console.error('Error creating echo particle sound:', e);
         }
     }
 
-    // 視覚エフェクト - より豪華なパーティクル
-    const particleCount = collisionData.type === 'wall' ? 8 : 12;
+    // 触覚フィードバック
+    if (collisionData.type === 'wall') {
+        const distance = Math.sqrt(
+            Math.pow(game.player.x - x, 2) +
+            Math.pow(game.player.y - y, 2)
+        );
+        hapticFeedback.distanceBasedVibration(distance, 300, hapticFeedback.patterns.echoHit);
+    } else if (collisionData.type === 'item') {
+        hapticFeedback.vibrate(hapticFeedback.patterns.subtle, 0.7);
+    } else if (collisionData.type === 'goal') {
+        hapticFeedback.vibrate(hapticFeedback.patterns.subtle, 1.0);
+    }
+
+    // 高度なパーティクル効果（パフォーマンス最適化版）
+    if (collisionData.type === 'item') {
+        particleEffects.explosion(x, y, { r: 255, g: 255, b: 0 }, 0.8);
+        // 星型パーティクルを追加（数を減らして最適化）
+        for (let i = 0; i < 3; i++) {
+            const angle = (Math.PI * 2 * i) / 3;
+            const distance = 20 + Math.random() * 15;
+            const px = x + Math.cos(angle) * distance;
+            const py = y + Math.sin(angle) * distance;
+            
+            game.advancedParticles.push(new AdvancedParticle(px, py, {
+                vx: Math.cos(angle) * 2,
+                vy: Math.sin(angle) * 2,
+                radius: 4,
+                life: 40,
+                color: { r: 255, g: 255, b: 0 },
+                decay: 0.025,
+                type: 'star',
+                rotationSpeed: 0.2,
+                glow: true
+            }));
+        }
+    } else if (collisionData.type === 'goal') {
+        particleEffects.explosion(x, y, { r: 0, g: 255, b: 0 }, 1.2);
+        particleEffects.spiral(x, y, { r: 0, g: 255, b: 100 }, 1.0);
+    } else if (collisionData.type === 'wall') {
+        // 壁反射効果を軽量化（距離に基づく制限）
+        const wallDistance = Math.sqrt(
+            Math.pow(game.player.x - x, 2) +
+            Math.pow(game.player.y - y, 2)
+        );
+        
+        // 近くの壁のみパーティクル生成（近距離壁はさらに制限）
+        if (wallDistance < 300 && !isCloseWall) {
+            // 壁の材質に応じた効果（簡略化）
+            const wallMaterial = Math.random();
+            let particleColor = { r: 0, g: 255, b: 255 };
+            let particleType = 'spark';
+            
+            if (wallMaterial < 0.33) {
+                // 金属の壁
+                particleColor = { r: 200, g: 200, b: 255 };
+                particleType = 'spark';
+            } else if (wallMaterial < 0.66) {
+                // 石の壁
+                particleColor = { r: 150, g: 150, b: 150 };
+                particleType = 'diamond';
+            } else {
+                // 通常の壁
+                particleColor = { r: 0, g: 255, b: 255 };
+                particleType = 'ring';
+            }
+            
+            // 壁反射の火花効果（数を制限）
+            const particleCount = wallDistance < 150 ? 2 : 1;
+            for (let i = 0; i < particleCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 1 + Math.random() * 1.5;
+                
+                game.advancedParticles.push(new AdvancedParticle(x, y, {
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: 1.5,
+                    life: 12,
+                    color: particleColor,
+                    decay: 0.1,
+                    type: particleType,
+                    gravity: 0.02,
+                    bounce: 0.1
+                }));
+            }
+        } else if (isCloseWall) {
+            // 近距離壁: 最小限のパーティクル効果のみ
+            game.advancedParticles.push(new AdvancedParticle(x, y, {
+                vx: (Math.random() - 0.5) * 1,
+                vy: (Math.random() - 0.5) * 1,
+                radius: 1,
+                life: 8,
+                color: { r: 100, g: 200, b: 255 },
+                decay: 0.15,
+                type: 'spark'
+            }));
+        }
+    }
+
+    // 視覚エフェクト - 最適化されたパーティクル
+    // 距離に基づいてパーティクル数を調整（近距離壁は特別処理）
+    let baseParticleCount;
+    if (collisionData.type === 'wall' && isCloseWall) {
+        baseParticleCount = 3; // 近距離壁は大幅削減
+    } else if (collisionData.type === 'wall') {
+        baseParticleCount = 5;
+    } else {
+        baseParticleCount = 8;
+    }
+    
+    const distanceFromPlayer = Math.sqrt(
+        Math.pow(game.player.x - x, 2) +
+        Math.pow(game.player.y - y, 2)
+    );
+    const distanceFactor = Math.max(0.2, 1 - distanceFromPlayer / 400);
+    const particleCount = Math.floor(baseParticleCount * distanceFactor);
+    
     for (let i = 0; i < particleCount; i++) {
         let color = '0, 255, 255'; // 壁は水色
         let secondaryColor = '0, 200, 255';
@@ -680,7 +1351,7 @@ function createEchoParticle(x, y, collisionData) {
             x: x,
             y: y,
             radius: 0,
-            maxRadius: 40 + i * 15,
+            maxRadius: 40 + i * 10, // 最大半径を小さくして軽量化
             alpha: 0.6 - i * 0.05,
             growthSpeed: 2.5,
             color: color,
@@ -688,9 +1359,10 @@ function createEchoParticle(x, y, collisionData) {
             shimmer: Math.random() * 0.3 + 0.7
         });
 
-        // Secondary sparkle particles
-        if (collisionData.type === 'item' || collisionData.type === 'goal') {
-            for (let j = 0; j < 3; j++) {
+        // Secondary sparkle particles（条件を厳しくして数を制限）
+        if ((collisionData.type === 'item' || collisionData.type === 'goal') && distanceFromPlayer < 250) {
+            const sparkleCount = Math.min(2, Math.floor(3 * distanceFactor));
+            for (let j = 0; j < sparkleCount; j++) {
                 game.echoParticles.push({
                     x: x + (Math.random() - 0.5) * 20,
                     y: y + (Math.random() - 0.5) * 20,
@@ -849,11 +1521,47 @@ function update() {
         game.player.x = newX;
     } else {
         game.player.actualVx = 0; // 壁に当たったら慣性をリセット
+        // 壁衝突時の触覚フィードバック
+        const collisionVelocity = Math.abs(game.player.actualVx);
+        hapticFeedback.collisionVibration(collisionVelocity);
+        
+        // 壁衝突パーティクル
+        if (collisionVelocity > 1) {
+            for (let i = 0; i < 3; i++) {
+                game.advancedParticles.push(new AdvancedParticle(newX, game.player.y, {
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: (Math.random() - 0.5) * 4,
+                    radius: 2,
+                    life: 15,
+                    color: { r: 255, g: 100, b: 100 },
+                    decay: 0.08,
+                    type: 'spark'
+                }));
+            }
+        }
     }
     if (!checkPlayerWallCollision(game.player.x, newY)) {
         game.player.y = newY;
     } else {
         game.player.actualVy = 0; // 壁に当たったら慣性をリセット
+        // 壁衝突時の触覚フィードバック
+        const collisionVelocity = Math.abs(game.player.actualVy);
+        hapticFeedback.collisionVibration(collisionVelocity);
+        
+        // 壁衝突パーティクル
+        if (collisionVelocity > 1) {
+            for (let i = 0; i < 3; i++) {
+                game.advancedParticles.push(new AdvancedParticle(game.player.x, newY, {
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: (Math.random() - 0.5) * 4,
+                    radius: 2,
+                    life: 15,
+                    color: { r: 255, g: 100, b: 100 },
+                    decay: 0.08,
+                    type: 'spark'
+                }));
+            }
+        }
     }
 
     // アイテムとの衝突判定
@@ -864,6 +1572,24 @@ function update() {
             const distance = Math.sqrt(dx * dx + dy * dy);
             if (distance <= game.player.radius + item.radius) {
                 item.collected = true;
+
+                // 触覚フィードバック - アイテム収集
+                hapticFeedback.vibrate(hapticFeedback.patterns.itemCollect);
+
+                // 豪華なパーティクル効果
+                particleEffects.explosion(item.x, item.y, { r: 255, g: 255, b: 0 }, 1.5);
+                particleEffects.spiral(item.x, item.y, { r: 255, g: 200, b: 0 }, 1.0);
+
+                // 流星効果でプレイヤーに向かう（最適化）
+                for (let i = 0; i < 4; i++) {
+                    const angle = (Math.PI * 2 * i) / 4;
+                    const startX = item.x + Math.cos(angle) * 25;
+                    const startY = item.y + Math.sin(angle) * 25;
+                    
+                    setTimeout(() => {
+                        particleEffects.meteor(startX, startY, game.player.x, game.player.y, { r: 255, g: 255, b: 100 });
+                    }, i * 75);
+                }
 
                 // アイテム収集音（きらきら音）
                 if (audioContext) {
@@ -931,6 +1657,27 @@ function update() {
         const dy = game.player.y - game.goal.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         if (distance <= game.player.radius + game.goal.radius) {
+            // ゴール到達時の触覚フィードバック
+            hapticFeedback.vibrate(hapticFeedback.patterns.goalReach);
+            
+            // 豪華なゴール効果
+            particleEffects.explosion(game.goal.x, game.goal.y, { r: 0, g: 255, b: 0 }, 2.0);
+            particleEffects.shockwave(game.goal.x, game.goal.y, 200, { r: 0, g: 255, b: 0 });
+            
+            // 勝利の花火
+            for (let i = 0; i < 12; i++) {
+                setTimeout(() => {
+                    const angle = (Math.PI * 2 * i) / 12;
+                    const x = game.goal.x + Math.cos(angle) * 50;
+                    const y = game.goal.y + Math.sin(angle) * 50;
+                    particleEffects.explosion(x, y, { 
+                        r: Math.floor(Math.random() * 256), 
+                        g: Math.floor(Math.random() * 256), 
+                        b: Math.floor(Math.random() * 256) 
+                    }, 1.0);
+                }, i * 100);
+            }
+            
             gameClear();
         }
     }
@@ -968,6 +1715,11 @@ function update() {
         }
         
         return particle.radius < particle.maxRadius && particle.alpha > 0.01;
+    });
+
+    // 高度なパーティクルの更新
+    game.advancedParticles = game.advancedParticles.filter(particle => {
+        return particle.update();
     });
 
     // アイテムの余韻効果の更新
@@ -1019,6 +1771,11 @@ function update() {
 function draw() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 高度なパーティクルの描画
+    game.advancedParticles.forEach(particle => {
+        particle.draw(ctx);
+    });
 
     // エコーパーティクルの描画 - より豪華な効果
     game.echoParticles.forEach(particle => {
@@ -1206,6 +1963,120 @@ function draw() {
     ctx.arc(game.player.x, game.player.y, 1, 0, Math.PI * 2);
     ctx.fillStyle = `rgba(255, 255, 255, ${pulse})`;
     ctx.fill();
+
+    // トランジション効果の描画
+    drawTransitionEffects();
+}
+
+// トランジション効果システム
+const transitionEffects = {
+    // フェードイン開始
+    fadeIn(duration = 1000) {
+        game.transitions.isTransitioning = true;
+        game.transitions.transitionType = 'fadeIn';
+        game.transitions.fadeAlpha = 1.0;
+        
+        const startTime = Date.now();
+        const fadeInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            game.transitions.fadeAlpha = 1 - progress;
+            
+            if (progress >= 1) {
+                game.transitions.isTransitioning = false;
+                game.transitions.transitionType = 'none';
+                game.transitions.fadeAlpha = 0;
+                clearInterval(fadeInterval);
+            }
+        }, 16);
+    },
+
+    // フェードアウト開始
+    fadeOut(duration = 1000, callback = null) {
+        game.transitions.isTransitioning = true;
+        game.transitions.transitionType = 'fadeOut';
+        game.transitions.fadeAlpha = 0;
+        
+        const startTime = Date.now();
+        const fadeInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            game.transitions.fadeAlpha = progress;
+            
+            if (progress >= 1) {
+                game.transitions.isTransitioning = false;
+                game.transitions.transitionType = 'none';
+                game.transitions.fadeAlpha = 1.0;
+                clearInterval(fadeInterval);
+                if (callback) callback();
+            }
+        }, 16);
+    },
+
+    // スライドイン効果
+    slideIn(direction = 'down', duration = 800) {
+        game.transitions.isTransitioning = true;
+        game.transitions.transitionType = 'slideIn';
+        game.transitions.slideOffset = direction === 'down' ? -canvas.height : canvas.height;
+        
+        const startTime = Date.now();
+        const slideInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const easeProgress = 1 - Math.pow(1 - progress, 3); // easeOut cubic
+            
+            if (direction === 'down') {
+                game.transitions.slideOffset = -canvas.height * (1 - easeProgress);
+            } else {
+                game.transitions.slideOffset = canvas.height * (1 - easeProgress);
+            }
+            
+            if (progress >= 1) {
+                game.transitions.isTransitioning = false;
+                game.transitions.transitionType = 'none';
+                game.transitions.slideOffset = 0;
+                clearInterval(slideInterval);
+            }
+        }, 16);
+    }
+};
+
+// トランジション効果の描画
+function drawTransitionEffects() {
+    if (!game.transitions.isTransitioning && game.transitions.fadeAlpha <= 0) return;
+
+    ctx.save();
+
+    switch (game.transitions.transitionType) {
+        case 'fadeIn':
+        case 'fadeOut':
+            // フェード効果
+            ctx.fillStyle = `rgba(0, 0, 0, ${game.transitions.fadeAlpha})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            break;
+
+        case 'slideIn':
+            // スライド効果
+            ctx.translate(0, game.transitions.slideOffset);
+            break;
+    }
+
+    // グラデーション効果
+    if (game.transitions.isTransitioning && game.transitions.transitionType === 'fadeIn') {
+        const gradient = ctx.createRadialGradient(
+            canvas.width / 2, canvas.height / 2, 0,
+            canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height)
+        );
+        gradient.addColorStop(0, `rgba(0, 100, 150, ${game.transitions.fadeAlpha * 0.3})`);
+        gradient.addColorStop(1, `rgba(0, 0, 0, ${game.transitions.fadeAlpha})`);
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    ctx.restore();
 }
 
 // UI更新
@@ -1451,6 +2322,7 @@ function startGame() {
     game.elapsedTime = 0;
     game.echoes = [];
     game.echoParticles = [];
+    game.advancedParticles = [];
     game.itemGlows = [];
     game.goalGlow = null;
     game.lastEchoTime = 0;
@@ -1495,6 +2367,9 @@ function startGame() {
     if (game.items.length < 5) {
         console.warn(`注意: アイテムが${game.items.length}個しか配置できませんでした。`);
     }
+
+    // ゲーム開始時のフェードイン効果
+    transitionEffects.fadeIn(1500);
 }
 
 if (startButton) {
