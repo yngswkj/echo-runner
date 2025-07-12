@@ -27,9 +27,12 @@ const game = {
     goalGlow: null, // ゴールの余韻効果
     layoutType: 0, // レイアウトタイプ（0:散在型、1:迷路型、2:部屋型）
     echoCooldown: 0,
-    echoCooldownMax: 2000, // 2秒
+    echoCooldownMax: 800, // 0.8秒に短縮
     lastEchoTime: 0,
     echoCount: 0, // エコー使用回数
+    echoEnergy: 100, // エコーエネルギー（最大100）
+    echoEnergyMax: 100,
+    echoEnergyRegenRate: 15, // 1秒あたりのエネルギー回復量
     startTime: 0,
     elapsedTime: 0,
     keys: {},
@@ -143,6 +146,68 @@ const audioNodePool = {
         if (this.delayNodes.length < this.maxPoolSize) {
             node.disconnect();
             this.delayNodes.push(node);
+        }
+    }
+};
+
+// パーティクルプール（パフォーマンス最適化）
+const particlePool = {
+    advancedParticles: [],
+    echoParticles: [],
+    maxPoolSize: 100,
+    
+    // AdvancedParticleを取得
+    getAdvancedParticle() {
+        if (this.advancedParticles.length > 0) {
+            return this.advancedParticles.pop();
+        }
+        return new AdvancedParticle();
+    },
+    
+    // EchoParticleを取得
+    getEchoParticle() {
+        if (this.echoParticles.length > 0) {
+            return this.echoParticles.pop();
+        }
+        return {
+            x: 0, y: 0, radius: 0, maxRadius: 0, alpha: 0,
+            growthSpeed: 0, color: '', type: '', shimmer: 1
+        };
+    },
+    
+    // AdvancedParticleをプールに戻す
+    returnAdvancedParticle(particle) {
+        if (this.advancedParticles.length < this.maxPoolSize) {
+            particle.reset();
+            this.advancedParticles.push(particle);
+        }
+    },
+    
+    // EchoParticleをプールに戻す
+    returnEchoParticle(particle) {
+        if (this.echoParticles.length < this.maxPoolSize) {
+            particle.x = 0;
+            particle.y = 0;
+            particle.radius = 0;
+            particle.maxRadius = 0;
+            particle.alpha = 0;
+            particle.growthSpeed = 0;
+            particle.color = '';
+            particle.type = '';
+            particle.shimmer = 1;
+            this.echoParticles.push(particle);
+        }
+    },
+    
+    // プールサイズを調整
+    adjustPoolSize() {
+        const activeAdvanced = game.advancedParticles.length;
+        const activeEcho = game.echoParticles.length;
+        
+        if (activeAdvanced > this.maxPoolSize * 0.8) {
+            this.maxPoolSize = Math.min(this.maxPoolSize * 1.2, 200);
+        } else if (activeAdvanced < this.maxPoolSize * 0.2 && this.maxPoolSize > 50) {
+            this.maxPoolSize = Math.max(this.maxPoolSize * 0.8, 50);
         }
     }
 };
@@ -447,6 +512,35 @@ class AdvancedParticle {
         ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${this.alpha})`;
         ctx.fill();
     }
+
+    // オブジェクトプーリング用のリセットメソッド
+    reset() {
+        this.x = 0;
+        this.y = 0;
+        this.vx = 0;
+        this.vy = 0;
+        this.ax = 0;
+        this.ay = 0;
+        this.radius = 2;
+        this.life = 60;
+        this.maxLife = this.life;
+        this.color = { r: 0, g: 255, b: 255 };
+        this.alpha = 1.0;
+        this.decay = 0.02;
+        this.type = 'default';
+        this.rotation = 0;
+        this.rotationSpeed = 0;
+        this.scale = 1.0;
+        this.scaleSpeed = 0;
+        this.trail = [];
+        this.maxTrailLength = 5;
+        this.gravity = 0;
+        this.bounce = 0;
+        this.glow = false;
+        this.pulsate = false;
+        this.pulsateSpeed = 0.1;
+        this.pulsateAmount = 0.3;
+    }
 }
 
 // パーティクル生成ヘルパー（最適化版）
@@ -460,16 +554,21 @@ const particleEffects = {
         for (let i = 0; i < particleCount; i++) {
             const angle = (Math.PI * 2 * i) / particleCount;
             const speed = 2 + Math.random() * 3 * intensity;
-            game.advancedParticles.push(new AdvancedParticle(x, y, {
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                radius: 2 + Math.random() * 2,
-                life: 25 + Math.random() * 20,
-                color: color,
-                decay: 0.04,
-                type: 'spark',
-                glow: true
-            }));
+            
+            const particle = particlePool.getAdvancedParticle();
+            particle.x = x;
+            particle.y = y;
+            particle.vx = Math.cos(angle) * speed;
+            particle.vy = Math.sin(angle) * speed;
+            particle.radius = 2 + Math.random() * 2;
+            particle.life = 25 + Math.random() * 20;
+            particle.maxLife = particle.life;
+            particle.color = color;
+            particle.decay = 0.04;
+            particle.type = 'spark';
+            particle.glow = true;
+            
+            game.advancedParticles.push(particle);
         }
     },
 
@@ -485,17 +584,21 @@ const particleEffects = {
             const px = x + Math.cos(angle) * radius;
             const py = y + Math.sin(angle) * radius;
             
-            game.advancedParticles.push(new AdvancedParticle(px, py, {
-                vx: Math.cos(angle + Math.PI / 2) * 0.8,
-                vy: Math.sin(angle + Math.PI / 2) * 0.8,
-                radius: 2,
-                life: 45,
-                color: color,
-                decay: 0.025,
-                type: 'ring',
-                rotationSpeed: 0.1,
-                glow: true
-            }));
+            const particle = particlePool.getAdvancedParticle();
+            particle.x = px;
+            particle.y = py;
+            particle.vx = Math.cos(angle + Math.PI / 2) * 0.8;
+            particle.vy = Math.sin(angle + Math.PI / 2) * 0.8;
+            particle.radius = 2;
+            particle.life = 45;
+            particle.maxLife = particle.life;
+            particle.color = color;
+            particle.decay = 0.025;
+            particle.type = 'ring';
+            particle.rotationSpeed = 0.1;
+            particle.glow = true;
+            
+            game.advancedParticles.push(particle);
         }
     },
 
@@ -507,35 +610,43 @@ const particleEffects = {
         const vx = (dx / distance) * 8;
         const vy = (dy / distance) * 8;
         
-        game.advancedParticles.push(new AdvancedParticle(x, y, {
-            vx: vx,
-            vy: vy,
-            radius: 4,
-            life: 80,
-            color: color,
-            decay: 0.015,
-            type: 'diamond',
-            trail: [],
-            maxTrailLength: 8,
-            glow: true,
-            pulsate: true,
-            pulsateSpeed: 0.2
-        }));
+        const particle = particlePool.getAdvancedParticle();
+        particle.x = x;
+        particle.y = y;
+        particle.vx = vx;
+        particle.vy = vy;
+        particle.radius = 4;
+        particle.life = 80;
+        particle.maxLife = particle.life;
+        particle.color = color;
+        particle.decay = 0.015;
+        particle.type = 'diamond';
+        particle.trail = [];
+        particle.maxTrailLength = 8;
+        particle.glow = true;
+        particle.pulsate = true;
+        particle.pulsateSpeed = 0.2;
+        
+        game.advancedParticles.push(particle);
     },
 
     // 拡散波
     shockwave(x, y, maxRadius = 100, color = { r: 0, g: 255, b: 255 }) {
         for (let i = 0; i < 3; i++) {
             setTimeout(() => {
-                game.advancedParticles.push(new AdvancedParticle(x, y, {
-                    radius: 5,
-                    life: 60,
-                    color: color,
-                    decay: 0.02,
-                    type: 'ring',
-                    scaleSpeed: maxRadius / 60,
-                    alpha: 0.8 - i * 0.2
-                }));
+                const particle = particlePool.getAdvancedParticle();
+                particle.x = x;
+                particle.y = y;
+                particle.radius = 5;
+                particle.life = 60;
+                particle.maxLife = particle.life;
+                particle.color = color;
+                particle.decay = 0.02;
+                particle.type = 'ring';
+                particle.scaleSpeed = maxRadius / 60;
+                particle.alpha = 0.8 - i * 0.2;
+                
+                game.advancedParticles.push(particle);
             }, i * 100);
         }
     }
@@ -1032,11 +1143,24 @@ function fireEcho(x, y) {
     if (game.cleared) return;
 
     const now = Date.now();
-    if (now - game.lastEchoTime < game.echoCooldownMax) return;
-
+    const timeSinceLastEcho = now - game.lastEchoTime;
+    
+    // エネルギーシステム：エコーごとに20エネルギー消費
+    const energyCost = 20;
+    
+    // クールダウンとエネルギーの両方をチェック
+    if (timeSinceLastEcho < game.echoCooldownMax) return;
+    if (game.echoEnergy < energyCost) return;
+    
+    // エネルギーを消費
+    game.echoEnergy -= energyCost;
     game.lastEchoTime = now;
     game.echoCount++; // エコー使用回数をカウント
-    playEchoSound(1000, 0.05);
+    
+    // 音響の周波数をエネルギーレベルに応じて調整
+    const energyRatio = game.echoEnergy / game.echoEnergyMax;
+    const frequency = 800 + (energyRatio * 400); // 800-1200Hz
+    playEchoSound(frequency, 0.05);
 
     // 触覚フィードバック
     hapticFeedback.vibrate(hapticFeedback.patterns.echoFire);
@@ -1346,34 +1470,36 @@ function createEchoParticle(x, y, collisionData) {
             secondaryColor = '0, 200, 100';
         }
 
-        // Main particles
-        game.echoParticles.push({
-            x: x,
-            y: y,
-            radius: 0,
-            maxRadius: 40 + i * 10, // 最大半径を小さくして軽量化
-            alpha: 0.6 - i * 0.05,
-            growthSpeed: 2.5,
-            color: color,
-            type: collisionData.type,
-            shimmer: Math.random() * 0.3 + 0.7
-        });
+        // Main particles (オブジェクトプール対応)
+        const particle = particlePool.getEchoParticle();
+        particle.x = x;
+        particle.y = y;
+        particle.radius = 0;
+        particle.maxRadius = 40 + i * 10; // 最大半径を小さくして軽量化
+        particle.alpha = 0.6 - i * 0.05;
+        particle.growthSpeed = 2.5;
+        particle.color = color;
+        particle.type = collisionData.type;
+        particle.shimmer = Math.random() * 0.3 + 0.7;
+        
+        game.echoParticles.push(particle);
 
         // Secondary sparkle particles（条件を厳しくして数を制限）
         if ((collisionData.type === 'item' || collisionData.type === 'goal') && distanceFromPlayer < 250) {
             const sparkleCount = Math.min(2, Math.floor(3 * distanceFactor));
             for (let j = 0; j < sparkleCount; j++) {
-                game.echoParticles.push({
-                    x: x + (Math.random() - 0.5) * 20,
-                    y: y + (Math.random() - 0.5) * 20,
-                    radius: 0,
-                    maxRadius: 15 + j * 5,
-                    alpha: 0.8,
-                    growthSpeed: 1.5,
-                    color: secondaryColor,
-                    type: collisionData.type + '_sparkle',
-                    shimmer: Math.random() * 0.4 + 0.8
-                });
+                const sparkle = particlePool.getEchoParticle();
+                sparkle.x = x + (Math.random() - 0.5) * 20;
+                sparkle.y = y + (Math.random() - 0.5) * 20;
+                sparkle.radius = 0;
+                sparkle.maxRadius = 15 + j * 5;
+                sparkle.alpha = 0.8;
+                sparkle.growthSpeed = 1.5;
+                sparkle.color = secondaryColor;
+                sparkle.type = collisionData.type + '_sparkle';
+                sparkle.shimmer = Math.random() * 0.4 + 0.8;
+                
+                game.echoParticles.push(sparkle);
             }
         }
     }
@@ -1704,8 +1830,9 @@ function update() {
         return echo.life > 0;
     });
 
-    // エコーパーティクルの更新
-    game.echoParticles = game.echoParticles.filter(particle => {
+    // エコーパーティクルの更新（オブジェクトプール対応）
+    for (let i = game.echoParticles.length - 1; i >= 0; i--) {
+        const particle = game.echoParticles[i];
         particle.radius += particle.growthSpeed;
         particle.alpha *= 0.95;
         
@@ -1714,13 +1841,21 @@ function update() {
             particle.shimmer = 0.6 + Math.sin(Date.now() / 200 + particle.radius) * 0.4;
         }
         
-        return particle.radius < particle.maxRadius && particle.alpha > 0.01;
-    });
+        // パーティクルが非アクティブになったらプールに戻す
+        if (particle.radius >= particle.maxRadius || particle.alpha <= 0.01) {
+            particlePool.returnEchoParticle(particle);
+            game.echoParticles.splice(i, 1);
+        }
+    }
 
-    // 高度なパーティクルの更新
-    game.advancedParticles = game.advancedParticles.filter(particle => {
-        return particle.update();
-    });
+    // 高度なパーティクルの更新（オブジェクトプール対応）
+    for (let i = game.advancedParticles.length - 1; i >= 0; i--) {
+        const particle = game.advancedParticles[i];
+        if (!particle.update()) {
+            particlePool.returnAdvancedParticle(particle);
+            game.advancedParticles.splice(i, 1);
+        }
+    }
 
     // アイテムの余韻効果の更新
     game.itemGlows = game.itemGlows.filter(glow => {
@@ -1745,18 +1880,55 @@ function update() {
         }
     }
 
-    // クールダウンの更新
+    // エネルギーシステムの更新
     const now = Date.now();
+    const deltaTime = now - (game.lastUpdateTime || now);
+    game.lastUpdateTime = now;
+    
+    // エネルギーの自動回復
+    if (game.echoEnergy < game.echoEnergyMax) {
+        game.echoEnergy += (game.echoEnergyRegenRate * deltaTime) / 1000;
+        game.echoEnergy = Math.min(game.echoEnergy, game.echoEnergyMax);
+    }
+    
+    // クールダウンの更新
     const cooldownProgress = Math.min(1, (now - game.lastEchoTime) / game.echoCooldownMax);
+    const energyProgress = game.echoEnergy / game.echoEnergyMax;
+    const canEcho = cooldownProgress >= 1 && game.echoEnergy >= 20;
+    
     const cooldownBar = document.getElementById('echoCooldownBar');
     const echoStatus = document.getElementById('echoStatus');
     const echoButton = document.getElementById('echoButton');
 
-    if (cooldownBar) cooldownBar.style.width = (cooldownProgress * 100) + '%';
-    if (echoStatus) echoStatus.textContent = cooldownProgress >= 1 ? 'Ready' : 'Cooling...';
+    // エネルギーバーの表示（エネルギーレベルに応じて色を変更）
+    if (cooldownBar) {
+        const displayProgress = Math.min(energyProgress, cooldownProgress);
+        cooldownBar.style.width = (displayProgress * 100) + '%';
+        
+        // エネルギーレベルに応じて色を変更
+        if (energyProgress < 0.3) {
+            cooldownBar.style.background = 'linear-gradient(90deg, #ff4444, #ff6666)';
+        } else if (energyProgress < 0.7) {
+            cooldownBar.style.background = 'linear-gradient(90deg, #ffaa00, #ffcc44)';
+        } else {
+            cooldownBar.style.background = 'linear-gradient(90deg, #00ffff, #0080ff, #0040ff)';
+        }
+    }
+    
+    if (echoStatus) {
+        if (canEcho) {
+            echoStatus.textContent = 'Ready';
+        } else if (cooldownProgress < 1) {
+            echoStatus.textContent = 'Cooling...';
+        } else if (game.echoEnergy < 20) {
+            echoStatus.textContent = 'Low Energy';
+        } else {
+            echoStatus.textContent = 'Ready';
+        }
+    }
 
     if (echoButton) {
-        if (cooldownProgress >= 1) {
+        if (canEcho) {
             echoButton.classList.remove('cooldown');
         } else {
             echoButton.classList.add('cooldown');
@@ -2145,6 +2317,9 @@ function gameClear() {
     const echoPenalty = Math.min(game.echoCount * 10, 300); // 最大300点減点
     const score = Math.max(0, baseScore - timePenalty - echoPenalty);
 
+    // 統計記録
+    recordClearStats();
+
     // クリア画面表示
     const clearScreen = document.getElementById('clearScreen');
     const clearTime = document.getElementById('clearTime');
@@ -2326,6 +2501,8 @@ function startGame() {
     game.itemGlows = [];
     game.goalGlow = null;
     game.lastEchoTime = 0;
+    game.echoEnergy = game.echoEnergyMax; // エネルギーをフル回復
+    game.lastUpdateTime = Date.now();
 
     const startScreen = document.getElementById('startScreen');
     const clearScreen = document.getElementById('clearScreen');
@@ -2405,6 +2582,287 @@ window.addEventListener('beforeunload', () => {
         audioContext.close();
     }
 });
+
+// 統計管理システム
+const statsManager = {
+    // デフォルト統計データ
+    defaultStats: {
+        totalPlayTime: 0,
+        totalGames: 0,
+        totalClears: 0,
+        bestScore: 0,
+        bestTime: 0,
+        bestEchoCount: 0,
+        totalScore: 0,
+        achievements: {
+            firstClear: false,
+            speedRunner: false,
+            echoMaster: false,
+            streakRunner: false
+        },
+        currentStreak: 0,
+        lastPlayDate: null
+    },
+
+    // 統計データの読み込み
+    loadStats() {
+        try {
+            const saved = localStorage.getItem('echoRunner_stats');
+            if (saved) {
+                const stats = JSON.parse(saved);
+                // 新しいフィールドがある場合はマージ
+                return { ...this.defaultStats, ...stats };
+            }
+        } catch (e) {
+            console.error('統計データの読み込みエラー:', e);
+        }
+        return { ...this.defaultStats };
+    },
+
+    // 統計データの保存
+    saveStats(stats) {
+        try {
+            localStorage.setItem('echoRunner_stats', JSON.stringify(stats));
+        } catch (e) {
+            console.error('統計データの保存エラー:', e);
+        }
+    },
+
+    // ゲーム開始時の記録
+    recordGameStart() {
+        const stats = this.loadStats();
+        stats.totalGames++;
+        stats.lastPlayDate = new Date().toISOString();
+        this.saveStats(stats);
+        return stats;
+    },
+
+    // ゲームクリア時の記録
+    recordGameClear(gameData) {
+        const stats = this.loadStats();
+        const { elapsedTime, echoCount, score } = gameData;
+        
+        stats.totalClears++;
+        stats.totalScore += score;
+        stats.currentStreak++;
+        
+        // ベストスコア更新
+        if (score > stats.bestScore) {
+            stats.bestScore = score;
+        }
+        
+        // ベストタイム更新（初回または更新時）
+        if (stats.bestTime === 0 || elapsedTime < stats.bestTime) {
+            stats.bestTime = elapsedTime;
+        }
+        
+        // ベストエコー数更新（初回または更新時）
+        if (stats.bestEchoCount === 0 || echoCount < stats.bestEchoCount) {
+            stats.bestEchoCount = echoCount;
+        }
+        
+        // 実績チェック
+        this.checkAchievements(stats, gameData);
+        
+        this.saveStats(stats);
+        return stats;
+    },
+
+    // ゲーム失敗時の記録
+    recordGameFail() {
+        const stats = this.loadStats();
+        stats.currentStreak = 0;
+        this.saveStats(stats);
+        return stats;
+    },
+
+    // プレイ時間の記録
+    recordPlayTime(playTime) {
+        const stats = this.loadStats();
+        stats.totalPlayTime += playTime;
+        this.saveStats(stats);
+        return stats;
+    },
+
+    // 実績チェック
+    checkAchievements(stats, gameData) {
+        const { elapsedTime, echoCount } = gameData;
+        
+        // 初回クリア
+        if (stats.totalClears === 1) {
+            stats.achievements.firstClear = true;
+        }
+        
+        // スピードランナー (60秒以内)
+        if (elapsedTime <= 60000) {
+            stats.achievements.speedRunner = true;
+        }
+        
+        // エコーマスター (10回以内)
+        if (echoCount <= 10) {
+            stats.achievements.echoMaster = true;
+        }
+        
+        // 連続クリア (3回連続)
+        if (stats.currentStreak >= 3) {
+            stats.achievements.streakRunner = true;
+        }
+    },
+
+    // 統計データのリセット
+    resetStats() {
+        this.saveStats({ ...this.defaultStats });
+    },
+
+    // 統計表示の更新
+    updateStatsDisplay() {
+        const stats = this.loadStats();
+        
+        // 基本統計
+        const totalPlayTimeElement = document.getElementById('totalPlayTime');
+        const totalGamesElement = document.getElementById('totalGames');
+        const totalClearsElement = document.getElementById('totalClears');
+        const clearRateElement = document.getElementById('clearRate');
+        
+        if (totalPlayTimeElement) {
+            const minutes = Math.floor(stats.totalPlayTime / 60000);
+            totalPlayTimeElement.textContent = `${minutes}分`;
+        }
+        
+        if (totalGamesElement) {
+            totalGamesElement.textContent = `${stats.totalGames}回`;
+        }
+        
+        if (totalClearsElement) {
+            totalClearsElement.textContent = `${stats.totalClears}回`;
+        }
+        
+        if (clearRateElement) {
+            const rate = stats.totalGames > 0 ? Math.round((stats.totalClears / stats.totalGames) * 100) : 0;
+            clearRateElement.textContent = `${rate}%`;
+        }
+        
+        // ベストスコア
+        const bestScoreElement = document.getElementById('bestScore');
+        const bestTimeElement = document.getElementById('bestTime');
+        const bestEchoElement = document.getElementById('bestEcho');
+        const avgScoreElement = document.getElementById('avgScore');
+        
+        if (bestScoreElement) {
+            bestScoreElement.textContent = `${stats.bestScore}点`;
+        }
+        
+        if (bestTimeElement) {
+            if (stats.bestTime > 0) {
+                const seconds = Math.floor(stats.bestTime / 1000);
+                bestTimeElement.textContent = `${seconds}秒`;
+            } else {
+                bestTimeElement.textContent = '-';
+            }
+        }
+        
+        if (bestEchoElement) {
+            if (stats.bestEchoCount > 0) {
+                bestEchoElement.textContent = `${stats.bestEchoCount}回`;
+            } else {
+                bestEchoElement.textContent = '-';
+            }
+        }
+        
+        if (avgScoreElement) {
+            const avgScore = stats.totalClears > 0 ? Math.round(stats.totalScore / stats.totalClears) : 0;
+            avgScoreElement.textContent = `${avgScore}点`;
+        }
+        
+        // 実績
+        this.updateAchievementDisplay(stats.achievements);
+    },
+
+    // 実績表示の更新
+    updateAchievementDisplay(achievements) {
+        const achievementElements = {
+            firstClear: document.getElementById('achievement-firstClear'),
+            speedRunner: document.getElementById('achievement-speedRunner'),
+            echoMaster: document.getElementById('achievement-echoMaster'),
+            streakRunner: document.getElementById('achievement-streakRunner')
+        };
+        
+        Object.keys(achievements).forEach(key => {
+            const element = achievementElements[key];
+            if (element) {
+                if (achievements[key]) {
+                    element.textContent = '達成';
+                    element.classList.add('achieved');
+                } else {
+                    element.textContent = '未達成';
+                    element.classList.remove('achieved');
+                }
+            }
+        });
+    }
+};
+
+// 統計画面の制御
+function showStatsScreen() {
+    const statsScreen = document.getElementById('statsScreen');
+    const startScreen = document.getElementById('startScreen');
+    
+    if (statsScreen && startScreen) {
+        statsManager.updateStatsDisplay();
+        startScreen.style.display = 'none';
+        statsScreen.style.display = 'flex';
+    }
+}
+
+function hideStatsScreen() {
+    const statsScreen = document.getElementById('statsScreen');
+    const startScreen = document.getElementById('startScreen');
+    
+    if (statsScreen && startScreen) {
+        statsScreen.style.display = 'none';
+        startScreen.style.display = 'flex';
+    }
+}
+
+// 統計画面のイベントリスナー
+const statsButton = document.getElementById('statsButton');
+const backToMenuButton = document.getElementById('backToMenuButton');
+const resetStatsButton = document.getElementById('resetStatsButton');
+
+if (statsButton) {
+    statsButton.addEventListener('click', showStatsScreen);
+}
+
+if (backToMenuButton) {
+    backToMenuButton.addEventListener('click', hideStatsScreen);
+}
+
+if (resetStatsButton) {
+    resetStatsButton.addEventListener('click', () => {
+        if (confirm('統計データをすべてリセットしますか？この操作は取り消せません。')) {
+            statsManager.resetStats();
+            statsManager.updateStatsDisplay();
+        }
+    });
+}
+
+// ゲームイベントと統計の連携
+const originalStartGame = startGame;
+startGame = function() {
+    statsManager.recordGameStart();
+    originalStartGame.call(this);
+};
+
+// クリア時の統計記録を既存のクリア処理に統合
+function recordClearStats() {
+    const gameData = {
+        elapsedTime: game.elapsedTime,
+        echoCount: game.echoCount,
+        score: Math.max(0, 1000 - Math.min(Math.floor(game.elapsedTime / 1000) * 2, 500) - Math.min(game.echoCount * 10, 300))
+    };
+    
+    statsManager.recordGameClear(gameData);
+}
 
 // ゲーム開始
 gameLoop();

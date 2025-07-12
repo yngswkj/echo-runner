@@ -338,3 +338,199 @@ canvas:hover {
         font-size: 28px;
     }
 }
+
+/* 統計画面のスタイル */
+#statsScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 20, 40, 0.9) 100%);
+    display: none;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    color: #fff;
+    z-index: 15;
+    backdrop-filter: blur(10px);
+    overflow-y: auto;
+    padding: 20px;
+}
+
+#statsScreen h2 {
+    font-size: 36px;
+    margin-bottom: 20px;
+    color: #0ff;
+    text-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+    text-align: center;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+
+.stats-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 30px;
+    justify-content: center;
+    max-width: 1000px;
+    width: 100%;
+}
+
+.stats-section {
+    background: rgba(0, 30, 60, 0.8);
+    border: 2px solid rgba(0, 255, 255, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    min-width: 280px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+}
+
+.stats-section h3 {
+    color: #0ff;
+    font-size: 24px;
+    margin-bottom: 15px;
+    text-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+    text-align: center;
+    font-weight: bold;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 12px 0;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+}
+
+.stat-label {
+    font-size: 16px;
+    color: #ccc;
+    font-weight: 500;
+}
+
+.stat-item span:last-child {
+    color: #0ff;
+    font-size: 16px;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
+}
+
+.achievement-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 12px 0;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+}
+
+.achievement-name {
+    font-size: 16px;
+    color: #ccc;
+    font-weight: 500;
+}
+
+.achievement-status {
+    font-size: 14px;
+    font-weight: bold;
+    padding: 4px 8px;
+    border-radius: 6px;
+    text-shadow: none;
+}
+
+.achievement-status.achieved {
+    background: rgba(0, 255, 0, 0.2);
+    color: #0f0;
+    border: 1px solid rgba(0, 255, 0, 0.5);
+}
+
+.achievement-status:not(.achieved) {
+    background: rgba(100, 100, 100, 0.2);
+    color: #999;
+    border: 1px solid rgba(100, 100, 100, 0.5);
+}
+
+.stats-buttons {
+    display: flex;
+    gap: 20px;
+    margin-top: 30px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+#statsButton,
+#resetStatsButton,
+#backToMenuButton {
+    padding: 15px 30px;
+    font-size: 18px;
+    background: linear-gradient(135deg, #001122 0%, #003366 100%);
+    color: #fff;
+    border: 2px solid #00ffff;
+    cursor: pointer;
+    transition: all 0.3s;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    border-radius: 8px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    box-shadow: 0 4px 15px rgba(0, 255, 255, 0.2);
+}
+
+#statsButton:hover,
+#resetStatsButton:hover,
+#backToMenuButton:hover,
+#statsButton:active,
+#resetStatsButton:active,
+#backToMenuButton:active {
+    background: linear-gradient(135deg, #003366 0%, #0066aa 100%);
+    box-shadow: 0 6px 25px rgba(0, 255, 255, 0.4);
+    transform: translateY(-2px);
+}
+
+#resetStatsButton {
+    background: linear-gradient(135deg, #660000 0%, #aa0000 100%);
+    border-color: #ff6666;
+    box-shadow: 0 4px 15px rgba(255, 102, 102, 0.2);
+}
+
+#resetStatsButton:hover,
+#resetStatsButton:active {
+    background: linear-gradient(135deg, #aa0000 0%, #cc0000 100%);
+    box-shadow: 0 6px 25px rgba(255, 102, 102, 0.4);
+}
+
+@media (max-width: 768px) {
+    .stats-container {
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .stats-section {
+        min-width: auto;
+        width: 100%;
+        max-width: 400px;
+    }
+    
+    #statsScreen h2 {
+        font-size: 28px;
+    }
+    
+    .stats-section h3 {
+        font-size: 20px;
+    }
+    
+    .stats-buttons {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    #statsButton,
+    #resetStatsButton,
+    #backToMenuButton {
+        width: 100%;
+        max-width: 300px;
+    }
+}

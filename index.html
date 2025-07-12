@@ -38,6 +38,7 @@
             <p style="font-size: 14px; opacity: 0.6;">🔊 アイテムは高い音、ゴールは低い音で反響します</p>
             <p style="font-size: 12px; opacity: 0.5; margin-top: 15px;">💡 毎回異なるマップが生成されます！</p>
             <button id="startButton">Start Game</button>
+            <button id="statsButton">統計</button>
         </div>
         <div id="clearScreen">
             <h2>CLEAR!</h2>
@@ -47,6 +48,72 @@
             <p style="font-size: 14px; opacity: 0.7; margin-top: 10px;">基本スコア1000点 - 時間ペナルティ - Echoペナルティ</p>
             <p style="font-size: 12px; opacity: 0.5;">次回は違うマップが生成されます！</p>
             <button id="retryButton">もう一度プレイ</button>
+        </div>
+        <div id="statsScreen">
+            <h2>統計情報</h2>
+            <div class="stats-container">
+                <div class="stats-section">
+                    <h3>プレイ統計</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">総プレイ時間:</span>
+                        <span id="totalPlayTime">0分</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">ゲーム回数:</span>
+                        <span id="totalGames">0回</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">クリア回数:</span>
+                        <span id="totalClears">0回</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">クリア率:</span>
+                        <span id="clearRate">0%</span>
+                    </div>
+                </div>
+                <div class="stats-section">
+                    <h3>ベストスコア</h3>
+                    <div class="stat-item">
+                        <span class="stat-label">最高スコア:</span>
+                        <span id="bestScore">0点</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">最速クリア:</span>
+                        <span id="bestTime">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">最少Echo:</span>
+                        <span id="bestEcho">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">平均スコア:</span>
+                        <span id="avgScore">0点</span>
+                    </div>
+                </div>
+                <div class="stats-section">
+                    <h3>実績</h3>
+                    <div class="achievement-item">
+                        <span class="achievement-name">初回クリア</span>
+                        <span class="achievement-status" id="achievement-firstClear">未達成</span>
+                    </div>
+                    <div class="achievement-item">
+                        <span class="achievement-name">スピードランナー (60秒以内)</span>
+                        <span class="achievement-status" id="achievement-speedRunner">未達成</span>
+                    </div>
+                    <div class="achievement-item">
+                        <span class="achievement-name">エコーマスター (10回以内)</span>
+                        <span class="achievement-status" id="achievement-echoMaster">未達成</span>
+                    </div>
+                    <div class="achievement-item">
+                        <span class="achievement-name">連続クリア (3回連続)</span>
+                        <span class="achievement-status" id="achievement-streakRunner">未達成</span>
+                    </div>
+                </div>
+            </div>
+            <div class="stats-buttons">
+                <button id="resetStatsButton">統計をリセット</button>
+                <button id="backToMenuButton">メニューに戻る</button>
+            </div>
         </div>
     </div>
 
