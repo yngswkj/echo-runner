@@ -5,6 +5,7 @@ import { TimeUtils, DOMUtils } from '../core/utils.js';
 
 export class StatsManager {
     constructor() {
+        this.fromClearScreen = false; // どの画面から来たかを記録
         this.defaultStats = {
             totalPlayTime: 0,
             totalGames: 0,
@@ -250,11 +251,18 @@ export class StatsManager {
     showStatsScreen() {
         const statsScreen = DOMUtils.getElementById('statsScreen');
         const startScreen = DOMUtils.getElementById('startScreen');
+        const backToMenuButton = DOMUtils.getElementById('backToMenuButton');
+        const backToClearButton = DOMUtils.getElementById('backToClearButton');
         
         if (statsScreen && startScreen) {
+            this.fromClearScreen = false;
             this.updateStatsDisplay();
             DOMUtils.setDisplay(startScreen, false);
             DOMUtils.setDisplay(statsScreen, true);
+            
+            // ボタンの表示を通常に戻す
+            if (backToMenuButton) DOMUtils.setDisplay(backToMenuButton, true);
+            if (backToClearButton) DOMUtils.setDisplay(backToClearButton, false);
         }
     }
 
@@ -265,6 +273,43 @@ export class StatsManager {
         if (statsScreen && startScreen) {
             DOMUtils.setDisplay(statsScreen, false);
             DOMUtils.setDisplay(startScreen, true);
+        }
+    }
+
+    // クリア画面から統計を表示
+    showStatsFromClear() {
+        const statsScreen = DOMUtils.getElementById('statsScreen');
+        const clearScreen = DOMUtils.getElementById('clearScreen');
+        const backToMenuButton = DOMUtils.getElementById('backToMenuButton');
+        const backToClearButton = DOMUtils.getElementById('backToClearButton');
+        
+        if (statsScreen && clearScreen) {
+            this.fromClearScreen = true;
+            this.updateStatsDisplay();
+            DOMUtils.setDisplay(clearScreen, false);
+            DOMUtils.setDisplay(statsScreen, true);
+            
+            // ボタンの表示切り替え
+            if (backToMenuButton) DOMUtils.setDisplay(backToMenuButton, false);
+            if (backToClearButton) DOMUtils.setDisplay(backToClearButton, true);
+        }
+    }
+
+    // 統計画面からクリア画面に戻る
+    hideStatsToScreen(targetScreenId) {
+        const statsScreen = DOMUtils.getElementById('statsScreen');
+        const targetScreen = DOMUtils.getElementById(targetScreenId);
+        const backToMenuButton = DOMUtils.getElementById('backToMenuButton');
+        const backToClearButton = DOMUtils.getElementById('backToClearButton');
+        
+        if (statsScreen && targetScreen) {
+            DOMUtils.setDisplay(statsScreen, false);
+            DOMUtils.setDisplay(targetScreen, true);
+            
+            // ボタン表示をリセット
+            if (backToMenuButton) DOMUtils.setDisplay(backToMenuButton, true);
+            if (backToClearButton) DOMUtils.setDisplay(backToClearButton, false);
+            this.fromClearScreen = false;
         }
     }
 

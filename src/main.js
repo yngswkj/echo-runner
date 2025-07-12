@@ -3,7 +3,7 @@
 import { gameState } from './core/game-state.js';
 import { GAME_CONFIG, DOM_IDS, COLORS } from './core/constants.js';
 import { audioSystem } from './systems/audio-system.js';
-import { particlePool, particleEffects, echoParticleManager } from './systems/particle-system.js';
+import { particlePool, particleEffects, echoParticleManager, sonarRingManager } from './systems/particle-system.js';
 import { hapticSystem } from './systems/haptic-system.js';
 import { statsManager } from './ui/stats-manager.js';
 import { mapGenerator } from './world/map-generator.js';
@@ -113,7 +113,10 @@ class EchoRunnerGame {
                 gameState.advancedParticles
             );
 
-            // エコー生成
+            // ソナーリング生成（新システム）
+            sonarRingManager.createSonarRings(gameState.player.x, gameState.player.y);
+
+            // 従来のエコー生成（維持）
             this.createEchoes();
         }
     }
@@ -222,6 +225,14 @@ class EchoRunnerGame {
             backToMenuButton.addEventListener('click', () => statsManager.hideStatsScreen());
         }
 
+        // 統計画面からクリア画面に戻るボタン
+        const backToClearButton = DOMUtils.getElementById('backToClearButton');
+        if (backToClearButton) {
+            backToClearButton.addEventListener('click', () => {
+                statsManager.hideStatsToScreen('clearScreen');
+            });
+        }
+
         // 統計リセットボタン
         const resetStatsButton = DOMUtils.getElementById('resetStatsButton');
         if (resetStatsButton) {
@@ -230,6 +241,14 @@ class EchoRunnerGame {
                     statsManager.resetStats();
                     statsManager.updateStatsDisplay();
                 }
+            });
+        }
+
+        // クリア画面の統計ボタン
+        const clearStatsButton = DOMUtils.getElementById('clearStatsButton');
+        if (clearStatsButton) {
+            clearStatsButton.addEventListener('click', () => {
+                statsManager.showStatsFromClear();
             });
         }
     }
@@ -455,12 +474,50 @@ class EchoRunnerGame {
         const distance = Math.sqrt((x - gameState.player.x) ** 2 + (y - gameState.player.y) ** 2);
         audioSystem.playReflectionSound(distance, collisionData.type);
 
-        // パーティクル生成
-        echoParticleManager.createEchoParticle(x, y, collisionData, gameState.echoParticles);
+        // パーティクル生成（プレイヤー位置を渡して距離計算）
+        echoParticleManager.createEchoParticle(x, y, collisionData, gameState.echoParticles, 
+                                              gameState.player.x, gameState.player.y);
+
+        // 余韻効果の生成
+        this.createGlowEffect(collisionData);
+    }
+
+    // 余韻効果の生成
+    createGlowEffect(collisionData) {
+        if (collisionData.type === 'item' && collisionData.object && !collisionData.object.collected) {
+            // アイテムの余韻効果
+            const existingGlow = gameState.itemGlows.find(glow => glow.item === collisionData.object);
+            if (!existingGlow) {
+                gameState.itemGlows.push({
+                    item: collisionData.object,
+                    alpha: 1.0,
+                    pulsePhase: 0,
+                    decay: 0.015
+                });
+            } else {
+                // 既存のglowをリフレッシュ
+                existingGlow.alpha = Math.min(1.0, existingGlow.alpha + 0.5);
+            }
+        } else if (collisionData.type === 'goal' && collisionData.object && collisionData.object.active) {
+            // ゴールの余韻効果
+            if (!gameState.goalGlow) {
+                gameState.goalGlow = {
+                    alpha: 1.0,
+                    pulsePhase: 0,
+                    decay: 0.01
+                };
+            } else {
+                gameState.goalGlow.alpha = Math.min(1.0, gameState.goalGlow.alpha + 0.5);
+            }
+        }
     }
 
     // パーティクル更新
     updateParticles() {
+        // ソナーリング更新
+        sonarRingManager.updateSonarRings();
+        sonarRingManager.checkRingCollisions(gameState);
+
         // エコーパーティクル更新
         echoParticleManager.updateEchoParticles(gameState.echoParticles, particlePool);
 
@@ -470,6 +527,27 @@ class EchoRunnerGame {
             if (!particle.update()) {
                 particlePool.returnAdvancedParticle(particle);
                 gameState.advancedParticles.splice(i, 1);
+            }
+        }
+
+        // アイテムの余韻効果更新
+        for (let i = gameState.itemGlows.length - 1; i >= 0; i--) {
+            const glow = gameState.itemGlows[i];
+            glow.alpha -= glow.decay;
+            glow.pulsePhase += 0.1;
+            
+            if (glow.alpha <= 0 || glow.item.collected) {
+                gameState.itemGlows.splice(i, 1);
+            }
+        }
+
+        // ゴールの余韻効果更新
+        if (gameState.goalGlow) {
+            gameState.goalGlow.alpha -= gameState.goalGlow.decay;
+            gameState.goalGlow.pulsePhase += 0.05;
+            
+            if (gameState.goalGlow.alpha <= 0 || !gameState.goal || !gameState.goal.active) {
+                gameState.goalGlow = null;
             }
         }
 
@@ -487,7 +565,7 @@ class EchoRunnerGame {
                     (gameState.player.y - item.y) ** 2
                 );
                 
-                if (distance < gameState.player.radius + item.radius) {
+                if (distance < gameState.player.radius + item.radius + 5) {
                     gameState.collectItem(index);
                     audioSystem.playItemCollectSound();
                     hapticSystem.vibrate('itemCollect');
@@ -630,21 +708,158 @@ class EchoRunnerGame {
 
         if (!gameState.started) return;
 
+        // ソナーリング描画（最背面）
+        sonarRingManager.drawSonarRings(this.ctx);
+
+        // 壁の描画（エコーパーティクルによる可視化）
+        this.drawWalls();
+
+        // アイテムの描画
+        this.drawItems();
+
+        // ゴールの描画
+        this.drawGoal();
+
         // 高度なパーティクル描画
         gameState.advancedParticles.forEach(particle => {
             particle.draw(this.ctx);
         });
 
         // エコーパーティクル描画
-        echoParticleManager.drawEchoParticles(this.ctx, gameState.echoParticles);
+        echoParticleManager.drawEchoParticles(this.ctx, gameState.echoParticles, gameState);
 
-        // プレイヤー描画（デバッグ用）
+        // プレイヤー描画 - より豪華な効果
         if (gameState.started && !gameState.cleared) {
+            const time = Date.now() / 1000;
+            const pulse = Math.sin(time * 3) * 0.3 + 0.7;
+            
+            // Outer glow
+            this.ctx.beginPath();
+            this.ctx.arc(gameState.player.x, gameState.player.y, gameState.player.radius + 8, 0, Math.PI * 2);
+            this.ctx.fillStyle = `rgba(${COLORS.PLAYER}, ${0.1 * pulse})`;
+            this.ctx.fill();
+            
+            // Main player body
             this.ctx.beginPath();
             this.ctx.arc(gameState.player.x, gameState.player.y, gameState.player.radius, 0, Math.PI * 2);
-            this.ctx.fillStyle = `rgba(${COLORS.PLAYER}, 0.3)`;
+            this.ctx.fillStyle = `rgba(${COLORS.PLAYER}, ${0.4 * pulse})`;
+            this.ctx.fill();
+            this.ctx.strokeStyle = `rgba(${COLORS.PLAYER}, ${0.8 * pulse})`;
+            this.ctx.lineWidth = 2;
+            this.ctx.stroke();
+            
+            // Inner bright core
+            this.ctx.beginPath();
+            this.ctx.arc(gameState.player.x, gameState.player.y, gameState.player.radius * 0.4, 0, Math.PI * 2);
+            this.ctx.fillStyle = `rgba(${COLORS.PLAYER}, ${0.9 * pulse})`;
             this.ctx.fill();
         }
+
+        // エコー描画
+        this.drawEchoes();
+    }
+
+    // 壁の描画
+    drawWalls() {
+        gameState.walls.forEach(wall => {
+            // エコーパーティクルによる可視化チェック
+            let alpha = 0;
+            for (const particle of gameState.echoParticles) {
+                if (particle && particle.collisionData && particle.collisionData.type === 'wall') {
+                    const wallCenterX = wall.x + wall.width / 2;
+                    const wallCenterY = wall.y + wall.height / 2;
+                    const distance = Math.sqrt((particle.x - wallCenterX)**2 + (particle.y - wallCenterY)**2);
+                    if (distance < 120) {
+                        const visibility = Math.max(0, 1 - distance / 120) * particle.alpha * 0.8;
+                        alpha = Math.max(alpha, visibility);
+                    }
+                }
+            }
+
+            // 一時的に全ての壁を薄く表示（デバッグ用）
+            if (alpha > 0.01) {
+                this.ctx.fillStyle = `rgba(${COLORS.WALL}, ${alpha})`;
+                this.ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
+            } else {
+                // デバッグ：壁の輪郭を薄く表示
+                this.ctx.strokeStyle = `rgba(${COLORS.WALL}, 0.05)`;
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
+            }
+        });
+    }
+
+    // アイテムの描画（余韻効果がある場合のみ表示）
+    drawItems() {
+        gameState.itemGlows.forEach(glow => {
+            const item = glow.item;
+            if (!item.collected) {
+                const pulseSize = Math.sin(glow.pulsePhase) * 3;
+
+                // 外側の光（フェードアウト）
+                this.ctx.beginPath();
+                this.ctx.arc(item.x, item.y, item.radius + pulseSize + 10, 0, Math.PI * 2);
+                this.ctx.fillStyle = `rgba(${COLORS.ITEM}, ${glow.alpha * 0.1})`;
+                this.ctx.fill();
+
+                // メインのアイテム（フェードアウト）
+                this.ctx.beginPath();
+                this.ctx.arc(item.x, item.y, item.radius + pulseSize, 0, Math.PI * 2);
+                this.ctx.fillStyle = `rgba(${COLORS.ITEM}, ${glow.alpha * 0.3})`;
+                this.ctx.fill();
+                this.ctx.strokeStyle = `rgba(${COLORS.ITEM}, ${glow.alpha * 0.5})`;
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+
+                // 中心の明るい点（フェードアウト）
+                this.ctx.beginPath();
+                this.ctx.arc(item.x, item.y, 5, 0, Math.PI * 2);
+                this.ctx.fillStyle = `rgba(${COLORS.ITEM}, ${glow.alpha * 0.8})`;
+                this.ctx.fill();
+            }
+        });
+    }
+
+    // ゴールの描画（余韻効果がある場合のみ表示）
+    drawGoal() {
+        if (gameState.goal && gameState.goal.active && gameState.goalGlow) {
+            const pulseSize = Math.sin(gameState.goalGlow.pulsePhase) * 5;
+
+            // 外側の輪（フェードアウト）
+            this.ctx.beginPath();
+            this.ctx.arc(gameState.goal.x, gameState.goal.y, gameState.goal.radius + pulseSize + 10, 0, Math.PI * 2);
+            this.ctx.strokeStyle = `rgba(${COLORS.GOAL}, ${gameState.goalGlow.alpha * 0.3})`;
+            this.ctx.lineWidth = 2;
+            this.ctx.stroke();
+
+            // メインの円（フェードアウト）
+            this.ctx.beginPath();
+            this.ctx.arc(gameState.goal.x, gameState.goal.y, gameState.goal.radius + pulseSize, 0, Math.PI * 2);
+            this.ctx.fillStyle = `rgba(${COLORS.GOAL}, ${gameState.goalGlow.alpha * 0.2})`;
+            this.ctx.fill();
+            this.ctx.strokeStyle = `rgba(${COLORS.GOAL}, ${gameState.goalGlow.alpha * 0.6})`;
+            this.ctx.lineWidth = 3;
+            this.ctx.stroke();
+
+            // 中心の明るい点（フェードアウト）
+            this.ctx.beginPath();
+            this.ctx.arc(gameState.goal.x, gameState.goal.y, 5, 0, Math.PI * 2);
+            this.ctx.fillStyle = `rgba(${COLORS.GOAL}, ${gameState.goalGlow.alpha * 0.8})`;
+            this.ctx.fill();
+        }
+    }
+
+    // エコーの描画
+    drawEchoes() {
+        gameState.echoes.forEach(echo => {
+            const alpha = echo.life / echo.maxLife;
+            if (alpha > 0.01) {
+                this.ctx.beginPath();
+                this.ctx.arc(echo.x, echo.y, 3, 0, Math.PI * 2);
+                this.ctx.fillStyle = `rgba(${COLORS.ECHO}, ${alpha})`;
+                this.ctx.fill();
+            }
+        });
     }
 
     // 破棄
@@ -667,6 +882,7 @@ window.echoRunner = {
     gameState,
     audioSystem,
     particlePool,
+    sonarRingManager,
     hapticSystem,
     statsManager
 };

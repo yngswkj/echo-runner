@@ -47,7 +47,11 @@
             <div class="score">スコア: <span id="clearScore">0</span></div>
             <p style="font-size: 14px; opacity: 0.7; margin-top: 10px;">基本スコア1000点 - 時間ペナルティ - Echoペナルティ</p>
             <p style="font-size: 12px; opacity: 0.5;">次回は違うマップが生成されます！</p>
-            <button id="retryButton">もう一度プレイ</button>
+            <div style="margin-top: 20px;">
+                <button id="retryButton" style="margin-bottom: 15px;">もう一度プレイ</button>
+                <br>
+                <button id="clearStatsButton">統計を見る</button>
+            </div>
         </div>
         <div id="statsScreen">
             <h2>統計情報</h2>
@@ -113,6 +117,7 @@
             <div class="stats-buttons">
                 <button id="resetStatsButton">統計をリセット</button>
                 <button id="backToMenuButton">メニューに戻る</button>
+                <button id="backToClearButton" style="display: none;">クリア画面に戻る</button>
             </div>
         </div>
     </div>
