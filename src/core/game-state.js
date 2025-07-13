@@ -201,6 +201,24 @@ export class GameState {
         return Math.max(0, baseScore - timePenalty - echoPenalty);
     }
 
+    // スコア詳細計算（ペナルティ内訳付き）
+    calculateScoreDetails() {
+        const baseScore = GAME_CONFIG.GAME.BASE_SCORE;
+        const timeSeconds = Math.floor(this.elapsedTime / 1000);
+        const timePenalty = Math.min(timeSeconds * GAME_CONFIG.GAME.TIME_PENALTY_RATE, GAME_CONFIG.GAME.MAX_TIME_PENALTY);
+        const echoPenalty = Math.min(this.echoCount * GAME_CONFIG.GAME.ECHO_PENALTY_RATE, GAME_CONFIG.GAME.MAX_ECHO_PENALTY);
+        const finalScore = Math.max(0, baseScore - timePenalty - echoPenalty);
+        
+        return {
+            baseScore: baseScore,
+            timePenalty: timePenalty,
+            echoPenalty: echoPenalty,
+            finalScore: finalScore,
+            timeSeconds: timeSeconds,
+            echoCount: this.echoCount
+        };
+    }
+
     // ゲーム状態の取得（統計用）
     getGameData() {
         return {

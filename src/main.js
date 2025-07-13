@@ -628,9 +628,30 @@ class EchoRunnerGame {
         const clearScore = DOMUtils.getElementById('clearScore');
 
         if (clearScreen) {
+            // 基本情報の更新
             DOMUtils.setText(clearTime, TimeUtils.formatTime(gameState.elapsedTime));
             DOMUtils.setText(clearEchoCount, gameState.echoCount.toString());
             DOMUtils.setText(clearScore, gameState.calculateScore().toString());
+            
+            // スコア詳細の更新
+            const scoreDetails = gameState.calculateScoreDetails();
+            
+            const baseScore = DOMUtils.getElementById('baseScore');
+            const timePenalty = DOMUtils.getElementById('timePenalty');
+            const echoPenalty = DOMUtils.getElementById('echoPenalty');
+            const finalScore = DOMUtils.getElementById('finalScore');
+            const timePenaltyDetail = DOMUtils.getElementById('timePenaltyDetail');
+            const echoPenaltyDetail = DOMUtils.getElementById('echoPenaltyDetail');
+            
+            if (baseScore) DOMUtils.setText(baseScore, `+${scoreDetails.baseScore}`);
+            if (timePenalty) DOMUtils.setText(timePenalty, `-${scoreDetails.timePenalty}`);
+            if (echoPenalty) DOMUtils.setText(echoPenalty, `-${scoreDetails.echoPenalty}`);
+            if (finalScore) DOMUtils.setText(finalScore, scoreDetails.finalScore.toString());
+            
+            // ペナルティの詳細情報を表示
+            if (timePenaltyDetail) DOMUtils.setText(timePenaltyDetail, `(${scoreDetails.timeSeconds}秒)`);
+            if (echoPenaltyDetail) DOMUtils.setText(echoPenaltyDetail, `(${scoreDetails.echoCount}回)`);
+            
             DOMUtils.setDisplay(clearScreen, true);
         }
     }

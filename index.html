@@ -37,20 +37,68 @@
             <p style="font-size: 14px; opacity: 0.8;">PC: 矢印キー/WASDで移動 | モバイル: ジョイスティックで移動</p>
             <p style="font-size: 14px; opacity: 0.6;">🔊 アイテムは高い音、ゴールは低い音で反響します</p>
             <p style="font-size: 12px; opacity: 0.5; margin-top: 15px;">💡 毎回異なるマップが生成されます！</p>
-            <button id="startButton">Start Game</button>
-            <button id="statsButton">統計</button>
+            <div style="display: flex; flex-direction: column; align-items: center;">
+                <button id="startButton">Start Game</button>
+                <button id="statsButton">統計</button>
+            </div>
         </div>
         <div id="clearScreen">
-            <h2>CLEAR!</h2>
-            <div class="stats">クリアタイム: <span id="clearTime">0:00</span></div>
-            <div class="stats">Echo使用回数: <span id="clearEchoCount">0</span></div>
-            <div class="score">スコア: <span id="clearScore">0</span></div>
-            <p style="font-size: 14px; opacity: 0.7; margin-top: 10px;">基本スコア1000点 - 時間ペナルティ - Echoペナルティ</p>
-            <p style="font-size: 12px; opacity: 0.5;">次回は違うマップが生成されます！</p>
-            <div style="margin-top: 20px;">
-                <button id="retryButton" style="margin-bottom: 15px;">もう一度プレイ</button>
-                <br>
-                <button id="clearStatsButton">統計を見る</button>
+            <div class="clear-content">
+                <h2>CLEAR!</h2>
+                
+                <!-- 基本統計 -->
+                <div class="basic-stats">
+                    <div class="stat-row">
+                        <span class="stat-label">クリアタイム:</span>
+                        <span class="stat-value" id="clearTime">0:00</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Echo使用回数:</span>
+                        <span class="stat-value" id="clearEchoCount">0</span>
+                    </div>
+                </div>
+                
+                <!-- メインスコア -->
+                <div class="main-score">
+                    <span class="score-label">スコア</span>
+                    <span class="score-value" id="clearScore">0</span>
+                </div>
+                
+                <!-- スコア詳細 -->
+                <div class="score-breakdown">
+                    <h3>スコア内訳</h3>
+                    <div class="score-item">
+                        <span class="score-label">基本スコア:</span>
+                        <span class="score-value positive" id="baseScore">1000</span>
+                    </div>
+                    <div class="score-item">
+                        <span class="score-label">時間ペナルティ:</span>
+                        <span class="score-value negative">
+                            <span id="timePenalty">-0</span>
+                            <span class="penalty-detail" id="timePenaltyDetail">(0秒)</span>
+                        </span>
+                    </div>
+                    <div class="score-item">
+                        <span class="score-label">Echoペナルティ:</span>
+                        <span class="score-value negative">
+                            <span id="echoPenalty">-0</span>
+                            <span class="penalty-detail" id="echoPenaltyDetail">(0回)</span>
+                        </span>
+                    </div>
+                    <div class="score-item total">
+                        <span class="score-label">最終スコア:</span>
+                        <span class="score-value" id="finalScore">1000</span>
+                    </div>
+                </div>
+                
+                <!-- 説明とボタン -->
+                <div class="clear-footer">
+                    <p class="next-hint">次回は違うマップが生成されます！</p>
+                    <div class="clear-buttons">
+                        <button id="retryButton">もう一度プレイ</button>
+                        <button id="clearStatsButton">統計を見る</button>
+                    </div>
+                </div>
             </div>
         </div>
         <div id="statsScreen">

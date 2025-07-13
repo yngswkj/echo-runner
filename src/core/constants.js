@@ -10,9 +10,9 @@ export const GAME_CONFIG = {
     // プレイヤー設定
     PLAYER: {
         RADIUS: 8,
-        SPEED: 3,
-        FRICTION: 0.85,
-        ACCELERATION: 0.4
+        SPEED: 2,           // 3から2に減速
+        FRICTION: 0.88,     // 摩擦を少し上げて急停止
+        ACCELERATION: 0.3   // 加速度を下げてよりコントロールしやすく
     },
 
     // エコーシステム設定
